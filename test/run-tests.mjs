@@ -593,7 +593,7 @@ await test("proxies dynamic URL-id files to the API-provided remote URL", async 
   }
 });
 
-await test("lists public entry paths at root without logging in", async () => {
+await test("challenges unauthenticated root WebDAV listings", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (url) => {
@@ -607,11 +607,9 @@ await test("lists public entry paths at root without logging in", async () => {
         headers: { Depth: "1" },
       }),
     );
-    const xml = await response.text();
 
-    assert.equal(response.status, 207);
-    assert.match(xml, /<D:href>\/popular\/<\/D:href>/);
-    assert.equal(xml.includes("/recommend/"), false);
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get("WWW-Authenticate"), /^Basic /);
   } finally {
     globalThis.fetch = originalFetch;
   }

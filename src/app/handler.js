@@ -67,6 +67,10 @@ async function propfindResponse(request, env, credentials) {
     return missingTrackIdResponse(request, env);
   }
 
+  if (context.rootIndex && !credentials) {
+    return unauthorizedResponse(context.env);
+  }
+
   const contextEnv = await envForContext(context, credentials);
   const manifest = await manifestForContext(context, contextEnv, credentials);
   const path = context.path;
