@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "yarn@4.5.0",
   "scripts": {
     "check": "node --check src/worker.js && node test/run-tests.mjs",
     "test": "node test/run-tests.mjs",
@@ -10,6 +11,6 @@
     "dev": "wrangler dev"
   },
   "devDependencies": {
-    "wrangler": "latest"
+    "wrangler": "4.98.0"
   }
 }
