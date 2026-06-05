@@ -1,5 +1,5 @@
 import { HttpError } from "../shared/errors.js";
-import { ensureTrailingSlash, safeDecodeURIComponent } from "../shared/strings.js";
+import { safeDecodeURIComponent } from "../shared/strings.js";
 
 export function normalizeDavPath(path) {
   const text = String(path || "/").split("?")[0].split("#")[0].replaceAll("\\", "/");
@@ -105,32 +105,6 @@ export function parseDepth(value) {
 
 export function pathSegments(path) {
   return normalizeDavPath(path).split("/").filter(Boolean);
-}
-
-export function deriveDavPathFromRemoteUrl(remoteUrl, remoteBaseUrl) {
-  const url = new URL(remoteUrl);
-
-  if (remoteBaseUrl) {
-    const base = new URL(ensureTrailingSlash(remoteBaseUrl));
-    if (url.origin === base.origin && url.pathname.startsWith(base.pathname)) {
-      const relative = url.pathname.slice(base.pathname.length);
-      if (relative) {
-        return normalizeDavPath(relative);
-      }
-    }
-  }
-
-  return normalizeDavPath(url.pathname.split("/").pop() || "/");
-}
-
-export function remoteUrlFromPath(remoteBaseUrl, path) {
-  const base = new URL(ensureTrailingSlash(remoteBaseUrl));
-  const encodedPath = normalizeDavPath(path)
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  return new URL(encodedPath, base).toString();
 }
 
 export function parentPath(path) {

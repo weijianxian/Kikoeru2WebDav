@@ -2,13 +2,8 @@ import assert from "node:assert/strict";
 import { envWithAsmrAuthorization } from "../src/asmr/auth.js";
 import { buildManifest, handleRequest, normalizeDavPath } from "../src/index.js";
 
-const remoteBase =
-  "https://raw.kiko-play-niptan.one/media/stream/daily/2026-05-30/RJ01557615/GKSD049/01%EF%BC%9A%E3%80%90mp3%E3%80%91%E6%AD%A3%E7%AF%87";
-
 const env = {
-  REMOTE_BASE_URL: remoteBase,
-  DAV_TITLE: "raw-kiko",
-  VIRTUAL_FILES: JSON.stringify(["07表白.mp3"]),
+  DAV_TITLE: "asmr-webdav",
 };
 
 const asmrTree = [
@@ -84,17 +79,6 @@ function basicAuth(username, password) {
 
 await test("normalizes encoded DAV paths", () => {
   assert.equal(normalizeDavPath("/07%E8%A1%A8%E7%99%BD.mp3"), "/07表白.mp3");
-});
-
-await test("builds a synthetic directory tree", async () => {
-  const manifest = await buildManifest({
-    REMOTE_BASE_URL: "https://example.com/root",
-    VIRTUAL_FILES: JSON.stringify(["album/track.mp3"]),
-  });
-
-  assert.equal(manifest.dirs.has("/"), true);
-  assert.equal(manifest.dirs.has("/album"), true);
-  assert.equal(manifest.files.get("/album/track.mp3").remoteUrl, "https://example.com/root/album/track.mp3");
 });
 
 await test("builds a manifest from the asmr track API tree", async () => {
@@ -622,57 +606,4 @@ await test("answers OPTIONS as a DAV endpoint", async () => {
   assert.equal(response.status, 204);
   assert.equal(response.headers.get("DAV"), "1");
   assert.match(response.headers.get("Allow"), /PROPFIND/);
-});
-
-await test("returns PROPFIND multistatus with encoded hrefs", async () => {
-  const response = await handleRequest(
-    new Request("https://dav.example/", {
-      method: "PROPFIND",
-      headers: { Depth: "1" },
-    }),
-    env,
-  );
-  const xml = await response.text();
-
-  assert.equal(response.status, 207);
-  assert.match(xml, /<D:displayname>07表白\.mp3<\/D:displayname>/);
-  assert.match(xml, /\/07%E8%A1%A8%E7%99%BD\.mp3/);
-  assert.match(xml, /audio\/mpeg/);
-});
-
-await test("proxies GET with Range to the remote resource", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = async (url, init) => {
-    assert.equal(
-      url,
-      "https://raw.kiko-play-niptan.one/media/stream/daily/2026-05-30/RJ01557615/GKSD049/01%EF%BC%9A%E3%80%90mp3%E3%80%91%E6%AD%A3%E7%AF%87/07%E8%A1%A8%E7%99%BD.mp3",
-    );
-    assert.equal(init.method, "GET");
-    assert.equal(init.headers.get("range"), "bytes=0-1");
-
-    return new Response("ok", {
-      status: 206,
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Content-Length": "2",
-        "Content-Range": "bytes 0-1/10",
-      },
-    });
-  };
-
-  try {
-    const response = await handleRequest(
-      new Request("https://dav.example/07%E8%A1%A8%E7%99%BD.mp3", {
-        headers: { Range: "bytes=0-1" },
-      }),
-      env,
-    );
-
-    assert.equal(response.status, 206);
-    assert.equal(response.headers.get("Content-Type"), "audio/mpeg");
-    assert.equal(await response.text(), "ok");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
 });

@@ -1,11 +1,8 @@
-import { HttpError } from "../shared/errors.js";
 import { guessContentType, isHttpUrl, normalizeHttpDate, parseList } from "../shared/strings.js";
 import {
-  deriveDavPathFromRemoteUrl,
   joinDavPath,
   normalizeDavPath,
   parentPath,
-  remoteUrlFromPath,
   sanitizeDavSegment,
 } from "../webdav/paths.js";
 import {
@@ -22,10 +19,10 @@ import {
 
 export async function buildManifest(env = {}) {
   const files = new Map();
-  const configuredFiles = [...parseVirtualFiles(env), ...(await fetchAsmrVirtualFiles(env))];
+  const configuredFiles = await fetchAsmrVirtualFiles(env);
 
   for (const item of configuredFiles) {
-    const entry = fileEntryFromConfig(item, env);
+    const entry = fileEntry(item);
     files.set(entry.path, entry);
   }
 
@@ -134,7 +131,7 @@ export function fileEntry({ path, url, contentType, size, lastModified, etag }) 
 }
 
 export function hasStaticSourceConfig(env) {
-  return hasAsmrConfig(env) || hasManualFilesConfig(env) || Boolean(env.REMOTE_BASE_URL);
+  return hasAsmrConfig(env);
 }
 
 async function fetchAsmrVirtualFiles(env) {
@@ -243,101 +240,8 @@ function pickAsmrUrl(node, env) {
   return undefined;
 }
 
-function parseVirtualFiles(env) {
-  const raw = env.VIRTUAL_FILES ?? env.FILES ?? env.FILE_URLS;
-
-  if (Array.isArray(raw)) {
-    return raw;
-  }
-
-  if (raw && typeof raw === "object") {
-    return raw.files ?? [];
-  }
-
-  if (raw === undefined || raw === null || String(raw).trim() === "") {
-    return [];
-  }
-
-  const text = String(raw).trim();
-  if (!text) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-    if (parsed && Array.isArray(parsed.files)) {
-      return parsed.files;
-    }
-  } catch {
-    // Fall through to newline format.
-  }
-
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"));
-}
-
-function fileEntryFromConfig(item, env) {
-  if (typeof item === "string") {
-    if (isHttpUrl(item)) {
-      return fileEntry({
-        path: deriveDavPathFromRemoteUrl(item, env.REMOTE_BASE_URL),
-        url: item,
-      });
-    }
-
-    if (!env.REMOTE_BASE_URL) {
-      throw new HttpError(500, "REMOTE_BASE_URL is required for relative file paths.");
-    }
-
-    return fileEntry({
-      path: item,
-      url: remoteUrlFromPath(env.REMOTE_BASE_URL, normalizeDavPath(item)),
-    });
-  }
-
-  if (!item || typeof item !== "object") {
-    throw new HttpError(500, "Invalid VIRTUAL_FILES entry.");
-  }
-
-  const remoteUrl = item.url || item.href || item.remoteUrl;
-  const path = item.path || item.name || (remoteUrl && deriveDavPathFromRemoteUrl(remoteUrl, env.REMOTE_BASE_URL));
-
-  if (!path) {
-    throw new HttpError(500, "Each VIRTUAL_FILES object needs a path or url.");
-  }
-
-  if (!remoteUrl && !env.REMOTE_BASE_URL) {
-    throw new HttpError(500, "REMOTE_BASE_URL is required when a file object has no url.");
-  }
-
-  return fileEntry({
-    path,
-    url: remoteUrl || remoteUrlFromPath(env.REMOTE_BASE_URL, normalizeDavPath(path)),
-    contentType: item.contentType || item.mimeType || item.mime,
-    size: item.size ?? item.contentLength,
-    lastModified: item.lastModified || item.modified || item.mtime,
-    etag: item.etag,
-  });
-}
-
 function hasAsmrConfig(env) {
   return Boolean(env.ASMR_API_URL || env.ASMR_TRACK_ID || env.ASMR_TRACK_IDS);
-}
-
-function hasManualFilesConfig(env) {
-  const raw = env.VIRTUAL_FILES ?? env.FILES ?? env.FILE_URLS;
-  if (Array.isArray(raw)) {
-    return raw.length > 0;
-  }
-  if (raw && typeof raw === "object") {
-    return Array.isArray(raw.files) && raw.files.length > 0;
-  }
-  return raw !== undefined && raw !== null && String(raw).trim() !== "";
 }
 
 function trackIdFromPopularWork(work) {

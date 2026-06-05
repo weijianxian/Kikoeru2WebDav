@@ -31,7 +31,7 @@ The project is intentionally split into small ES modules under `src/`. `src/inde
    - popular work listing,
    - authenticated recommendation listing,
    - direct work tree,
-   - static/manual file config.
+   - configured track ids.
 6. For file reads, `src/http/proxy.js` streams the upstream response body back to the client and forwards range-related headers.
 
 ## Directory Layout
@@ -101,7 +101,7 @@ File entries look like:
 }
 ```
 
-`src/webdav/responses.js` and `src/webdav/listing.js` only need this manifest shape. They do not know whether a node came from asmr-200, the recommender API, `VIRTUAL_FILES`, or `REMOTE_BASE_URL`. This is the main boundary that keeps WebDAV rendering separate from upstream data fetching.
+`src/webdav/responses.js` and `src/webdav/listing.js` only need this manifest shape. They do not know whether a node came from an asmr track tree, the popular recommender API, or the authenticated recommendation API. This is the main boundary that keeps WebDAV rendering separate from upstream data fetching.
 
 ## Route Model
 
@@ -128,8 +128,8 @@ Current top-level routes:
 - `/<RJID>/`
   - Direct dynamic work route.
   - `RJ01489611` and `01489611` style ids are accepted.
-- Static/manual mode
-  - If `REMOTE_BASE_URL`, `VIRTUAL_FILES`, `ASMR_TRACK_ID`, `ASMR_TRACK_IDS`, or `ASMR_API_URL` is configured, the normal manifest builder is used instead of the synthetic root entry listing.
+- Configured track mode
+  - If `ASMR_TRACK_ID`, `ASMR_TRACK_IDS`, or `ASMR_API_URL` is configured, the normal manifest builder is used instead of the synthetic root entry listing.
 
 ## Authentication Layers
 
@@ -232,7 +232,7 @@ Implemented in `src/asmr/manifest.js`.
 - `buildRecommendManifest(env, searchParams)`
   - Fetches authenticated recommendations and converts them to one directory per work.
 - `buildManifest(env)`
-  - Builds the normal file tree from static config and/or asmr track APIs.
+  - Builds the normal file tree from configured asmr track APIs.
 - `fileEntry(...)`
   - Normalizes a DAV file path and remote URL.
   - Guesses content type when needed.
@@ -274,8 +274,6 @@ The Worker proxies file content from `file.remoteUrl` with `GET` or `HEAD`. It f
 - `if-unmodified-since`
 
 The upstream response body is streamed directly into the Worker response. Do not replace this with `arrayBuffer()`, `text()`, or other full-buffer reads for media files.
-
-`ORIGIN_AUTHORIZATION` can add an `Authorization` header to upstream media requests.
 
 ## Configuration Variables
 
@@ -337,13 +335,6 @@ Configured in `wrangler.toml`, Wrangler secrets, or the Worker environment.
 - `ASMR_AUTH_FROM_BASIC`: set to `"false"` to disable asmr login from WebDAV Basic Auth.
 - `ASMR_AUTHORIZATION`: preconfigured Bearer value; skips Basic Auth login flow.
 
-### Manual Remote Files
-
-- `REMOTE_BASE_URL`: base URL for relative files and fallback path proxying.
-- `VIRTUAL_FILES` / `FILES` / `FILE_URLS`: manual file list, JSON or newline format.
-- `ALLOW_REMOTE_PATH_FALLBACK`: set to `"false"` to disable automatic fallback proxying under `REMOTE_BASE_URL`.
-- `ORIGIN_AUTHORIZATION`: optional auth header for upstream media file fetches.
-
 ## Caching Behavior
 
 - Public track API responses and public popular listings use a module-level `Map` cache.
@@ -377,7 +368,6 @@ The tests are plain Node assertions. They mock `globalThis.fetch` for upstream A
 Important coverage areas:
 
 - DAV path normalization and percent-encoding.
-- Manifest building from manual files.
 - Manifest building from asmr track API trees.
 - Dynamic `/<RJID>/` routing.
 - `/popular/` directory listing and work expansion.
@@ -411,7 +401,7 @@ For Workers safety:
 
 ## Known Footguns
 
-- Root `/` only becomes the synthetic entry page when no static source config exists. If `REMOTE_BASE_URL`, `VIRTUAL_FILES`, or configured track ids are present, `/` represents that configured filesystem.
+- Root `/` only becomes the synthetic entry page when no configured track source exists. If `ASMR_TRACK_ID`, `ASMR_TRACK_IDS`, or `ASMR_API_URL` is present, `/` represents that configured filesystem.
 - Showing `/recommend/` in the root listing only means non-guest Basic Auth was supplied. The actual asmr.one login still happens when `/recommend/` is opened.
 - Guest Basic Auth can pass WebDAV auth but must not be allowed into routes with `requiresAsmrAuth`.
 - `recommenderUuid` should come from the authenticated asmr user or trusted env, not from query parameters.

@@ -3,14 +3,13 @@ main = "src/index.js"
 compatibility_date = "2026-06-05"
 
 # Bind a KV namespace to cache asmr.one JWT tokens for authenticated recommendation routes.
-[[kv_namespaces]]
-binding = "ASMR_AUTH_KV"
-id = "token-kv-db"
+# [[kv_namespaces]]
+# binding = "ASMR_AUTH_KV"
+# id = "replace-with-your-kv-namespace-id"
 
 [vars]
 # Pass the work id in the URL path, for example:
 # https://your-worker.example/01489611/
-# The root path lists /popular/ for everyone and /recommend/ for non-guest Basic Auth users.
 ASMR_URL_FIELD = "mediaDownloadUrl"
 ASMR_CACHE_TTL_SECONDS = "300"
 DAV_TITLE = "asmr-webdav"
@@ -24,11 +23,6 @@ DAV_GUEST_ENABLED = "true"
 ASMR_POPULAR_PAGE = "1"
 ASMR_POPULAR_PAGE_SIZE = "20"
 ASMR_POPULAR_KEYWORD = " "
-
-# Recommended works are available at /recommend/ and require asmr.one auth.
-ASMR_RECOMMEND_PAGE = "1"
-ASMR_RECOMMEND_PAGE_SIZE = "20"
-ASMR_RECOMMEND_KEYWORD = " "
 
 # Cached JWT tokens are rechecked with /api/auth/me after this many seconds.
 ASMR_AUTH_VALIDATE_TTL_SECONDS = "300"

@@ -3,7 +3,6 @@ import {
   buildPopularManifest,
   buildRecommendManifest,
   buildRootManifest,
-  fileEntry,
 } from "../asmr/manifest.js";
 import { envWithAsmrAuthorization } from "../asmr/auth.js";
 import { authenticateRequest, unauthorizedResponse } from "../http/auth.js";
@@ -13,7 +12,7 @@ import { routeContextFromRequest } from "../routing/context.js";
 import { HttpError } from "../shared/errors.js";
 import { MUTATING_METHODS } from "../webdav/constants.js";
 import { childrenForDirectory } from "../webdav/listing.js";
-import { parseDepth, remoteUrlFromPath } from "../webdav/paths.js";
+import { parseDepth } from "../webdav/paths.js";
 import {
   davHeaders,
   htmlIndexResponse,
@@ -108,13 +107,7 @@ async function readResponse(request, env, credentials) {
     return htmlIndexResponse(path, manifest, contextEnv);
   }
 
-  let file = manifest.files.get(path);
-  if (!file && contextEnv.REMOTE_BASE_URL && contextEnv.ALLOW_REMOTE_PATH_FALLBACK !== "false") {
-    file = fileEntry({
-      path,
-      url: remoteUrlFromPath(contextEnv.REMOTE_BASE_URL, path),
-    });
-  }
+  const file = manifest.files.get(path);
 
   if (!file) {
     return textResponse("Not found.\n", 404);

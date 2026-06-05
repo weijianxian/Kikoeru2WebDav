@@ -19,10 +19,6 @@ export async function proxyRemoteFile(request, file, env) {
   copyRequestHeader(request.headers, headers, "if-unmodified-since");
   copyRequestHeader(request.headers, headers, "range");
 
-  if (env.ORIGIN_AUTHORIZATION) {
-    headers.set("authorization", env.ORIGIN_AUTHORIZATION);
-  }
-
   const upstream = await fetch(file.remoteUrl, {
     method: request.method.toUpperCase() === "HEAD" ? "HEAD" : "GET",
     headers,
