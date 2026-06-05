@@ -19,7 +19,7 @@ The project is intentionally split into small ES modules under `src/`. `src/inde
 ## High-Level Request Flow
 
 1. `src/index.js` receives the Worker fetch event and calls `handleRequest(request, env)`.
-2. `src/app/handler.js` authenticates the WebDAV request with `authenticateRequest`.
+2. `src/app/handler.js` parses the optional WebDAV Basic Auth credentials with `authenticateRequest`.
 3. The handler dispatches by HTTP method:
    - `OPTIONS` returns DAV capability headers.
    - `PROPFIND` builds a manifest and returns WebDAV multistatus XML.
@@ -111,6 +111,7 @@ Current top-level routes:
 
 - `/`
   - Root entry directory when no static source config is set.
+  - `PROPFIND /` without Basic Auth returns a Basic Auth challenge so WebDAV clients know they must authenticate.
   - Always lists `/popular/`.
   - Also lists `/recommend/` when the WebDAV Basic Auth credentials are present and are not the guest user.
   - Does not call asmr APIs and does not perform asmr.one login.
@@ -131,17 +132,18 @@ Current top-level routes:
 - Configured track mode
   - If `ASMR_TRACK_ID`, `ASMR_TRACK_IDS`, or `ASMR_API_URL` is configured, the normal manifest builder is used instead of the synthetic root entry listing.
 
-## Authentication Layers
+## Credential Flow
 
-There are two separate authentication concepts.
+WebDAV Basic Auth is used as the credential transport for DAV clients. The Worker does not maintain a separate DAV password check.
 
 ### WebDAV Basic Auth
 
 Implemented in `src/http/auth.js`.
 
-- If `DAV_USER` and `DAV_PASS` are not set, requests are allowed.
-- If a Basic Auth header is present, credentials are still parsed and made available to the application. This lets `/recommend/` use those credentials for asmr.one login even when the Worker itself is not locked down.
-- If `DAV_USER` and `DAV_PASS` are set, the credentials must match unless the guest mode accepts them.
+- There is no separate WebDAV credential gate.
+- Requests are allowed at the WebDAV layer, but Basic Auth credentials are parsed and made available to the application.
+- `/recommend/` uses non-guest Basic Auth credentials for asmr.one login.
+- Root WebDAV listings still challenge when no Basic Auth header is present, because many WebDAV clients only send credentials after receiving `WWW-Authenticate`.
 - Guest mode:
   - Default guest username: `guest`.
   - Any guest password is accepted.
@@ -284,7 +286,6 @@ Configured in `wrangler.toml`, Wrangler secrets, or the Worker environment.
 - `DAV_TITLE`: display name for root pages and auth realm fallback.
 - `DAV_REALM`: explicit Basic Auth realm.
 - `DAV_PREFIX` / `MOUNT_PATH`: mount the WebDAV filesystem under a path prefix.
-- `DAV_USER` / `DAV_PASS`: optional Basic Auth credentials. Prefer Wrangler secrets for production.
 - `DAV_GUEST_USER`: guest username, defaults to `guest`.
 - `DAV_GUEST_ENABLED`: set to `"false"` to disable guest access.
 
@@ -373,7 +374,7 @@ Important coverage areas:
 - `/popular/` directory listing and work expansion.
 - `/recommend/` login, token storage, and authenticated request body.
 - Guest access rules.
-- Root `/` listing visibility for anonymous, authenticated, and guest users.
+- Root `/` WebDAV challenge behavior and authenticated/guest listing visibility.
 - Range proxying for media files.
 
 ## Extension Guidelines
@@ -402,8 +403,9 @@ For Workers safety:
 ## Known Footguns
 
 - Root `/` only becomes the synthetic entry page when no configured track source exists. If `ASMR_TRACK_ID`, `ASMR_TRACK_IDS`, or `ASMR_API_URL` is present, `/` represents that configured filesystem.
+- Do not add a config switch to disable the root WebDAV auth challenge unless the user explicitly reopens that design; it exists for client compatibility.
 - Showing `/recommend/` in the root listing only means non-guest Basic Auth was supplied. The actual asmr.one login still happens when `/recommend/` is opened.
 - Guest Basic Auth can pass WebDAV auth but must not be allowed into routes with `requiresAsmrAuth`.
 - `recommenderUuid` should come from the authenticated asmr user or trusted env, not from query parameters.
 - `ASMR_AUTHORIZATION` should include the full authorization value expected by fetch, usually `Bearer <token>`.
-- `wrangler.toml` values are public project config. Real `DAV_USER`, `DAV_PASS`, JWTs, and production KV ids should be secrets or deployment-specific values.
+- `wrangler.toml` values are public project config. Real account passwords, JWTs, and production KV ids should be secrets or deployment-specific values.

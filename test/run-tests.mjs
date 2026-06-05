@@ -379,8 +379,6 @@ await test("rejects guest Basic Auth for recommended works", async () => {
       }),
       {
         ASMR_AUTH_KV: new MemoryKv(),
-        DAV_USER: "listener",
-        DAV_PASS: "secret",
       },
     );
 
@@ -415,8 +413,6 @@ await test("allows guest Basic Auth to browse public track APIs without logging 
       {
         ASMR_AUTH_KV: kv,
         ASMR_CACHE_TTL_SECONDS: "0",
-        DAV_USER: "listener",
-        DAV_PASS: "secret",
       },
     );
     const xml = await response.text();
@@ -631,10 +627,7 @@ await test("adds recommend to the root listing for authenticated users", async (
           Depth: "1",
         },
       }),
-      {
-        DAV_USER: "listener",
-        DAV_PASS: "secret",
-      },
+      {},
     );
     const xml = await response.text();
 
@@ -662,10 +655,7 @@ await test("keeps recommend hidden from guest root listings", async () => {
           Depth: "1",
         },
       }),
-      {
-        DAV_USER: "listener",
-        DAV_PASS: "secret",
-      },
+      {},
     );
     const xml = await response.text();
 

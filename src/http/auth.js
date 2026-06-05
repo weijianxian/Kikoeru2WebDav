@@ -2,28 +2,12 @@ import { escapeHeaderValue } from "../shared/strings.js";
 import { davHeaders } from "../webdav/responses.js";
 
 export function authenticateRequest(request, env) {
-  const expectedUser = env.DAV_USER ?? "";
-  const expectedPass = env.DAV_PASS ?? "";
   const credentials = basicCredentialsFromRequest(request);
   const guestCredentials = credentials && asGuestCredentials(credentials, env);
 
-  if (!expectedUser && !expectedPass) {
-    return { authorized: true, credentials: guestCredentials || credentials };
-  }
-
-  if (!credentials) {
-    return { authorized: false };
-  }
-
-  if (guestCredentials) {
-    return { authorized: true, credentials: guestCredentials };
-  }
-
   return {
-    authorized:
-      constantTimeEqual(credentials.username, expectedUser) &&
-      constantTimeEqual(credentials.password, expectedPass),
-    credentials,
+    authorized: true,
+    credentials: guestCredentials || credentials,
   };
 }
 

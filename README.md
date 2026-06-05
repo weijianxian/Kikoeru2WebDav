@@ -1,68 +1,38 @@
 # Kikoeru2WebDav
 
-把 asmr-200 / asmr.one 的作品、热门列表和个人推荐，映射成一个可以被 rclone、Windows 资源管理器、macOS Finder 等客户端挂载的只读 WebDAV 文件系统。
+Kikoeru2WebDav 是一个运行在 Cloudflare Workers 上的只读 WebDAV 网关，用来把 asmr-200 / asmr.one 的作品、热门列表和个人推荐变成可以挂载的文件系统。
 
-这个项目运行在 Cloudflare Workers 上。它不会把音频、图片或压缩包保存到 Cloudflare；Worker 只负责生成目录、处理 WebDAV 协议、缓存必要的 API 元数据，并在客户端读取文件时把远端媒体响应流式转发回来。
+它不会把音频、图片或压缩包保存到 Cloudflare。Worker 只负责生成目录、处理 WebDAV 协议、缓存必要的 API 元数据，并在客户端读取文件时把远端媒体响应流式转发回来。
 
-## 它能做什么
+## 核心能力
 
-- 把任意 asmr-200 作品 id 映射成 WebDAV 目录。
-- 支持 `RJ01489611` 和 `01489611` 两种作品 id 写法。
-- 访问 `/popular/` 时拉取热门作品列表，并把每个作品显示成目录。
-- 访问 `/recommend/` 时使用 asmr.one 登录态拉取个人推荐作品。
-- 根目录 `/` 自动显示入口目录：
-  - 未登录或 `guest` 访客只显示 `popular/`。
-  - 非 guest 的 Basic Auth 用户会额外看到 `recommend/`。
-- 用 WebDAV Basic Auth 的用户名和密码登录 asmr.one，并可把 JWT token 缓存在 Cloudflare KV。
-- 支持 guest 匿名模式：用户名 `guest`，密码随意，可以浏览不需要登录的接口。
-- 支持 WebDAV `PROPFIND`、`GET`、`HEAD`、`OPTIONS`。
-- 支持浏览器 HTML 目录页，也支持标准 WebDAV 客户端。
-- 支持 Range 请求，适合音频文件拖动播放、断点读取和媒体客户端扫描。
-- 目录和文件名保留日文、中文等 Unicode 字符，并在 WebDAV href 中正确编码。
-- 只读保护：所有写入类 WebDAV 方法都会返回 `403`。
+- 把 asmr 作品映射成 WebDAV 目录，支持 `RJ01489611` 和 `01489611` 两种写法。
+- 通过 `/popular/` 浏览公开热门作品，不需要 asmr.one 登录。
+- 通过 `/recommend/` 浏览个人推荐作品，需要非 guest 的 WebDAV Basic Auth。
 
-## 工作方式
+## 快速体验
 
-Kikoeru2WebDav 把不同来源的数据统一转换成内部的 WebDAV manifest：
+使用我已经部署好的 `https://asmr-webdav.weijx.vip/` 作为 WebDAV 服务器地址。
 
-```text
-asmr track API
-popular API
-recommend API
-        │
-        ▼
-  files / dirs manifest
-        │
-        ▼
-WebDAV XML / HTML index / streamed file proxy
-```
+你可以在浏览器里访问这个地址，看看它是怎么把热门作品和推荐作品展示成目录的。也可以直接挂载这个地址，或者用 rclone 之类的工具列出目录和文件。
 
-客户端看到的是目录和文件；Worker 背后按需请求 asmr-200 API。真正读取媒体文件时，Worker 会转发到 API 返回的 `mediaDownloadUrl`、`mediaStreamUrl` 或其他配置的 URL 字段。
+打开 `https://asmr-webdav.weijx.vip/popular/` 就能看到热门作品列表。点击某个作品目录就能看到它的文件树。
+访问 `https://asmr-webdav.weijx.vip/recommend/` 时会触发 Basic Auth，输入你在 asmr.one 注册的用户名和密码，就能看到你的推荐作品列表。
 
-## 路由总览
+## 自建
+1. 克隆本仓库。
+2. 打开 cloudlfare dashboard，创建一个新的 Worker，使用你的repository 作为 Worker 的代码来源。
+3. 添加 kv 数据库绑定，绑定名称为 `ASMR_AUTH_KV`。
+4. 等待部署完成
 
-| 路径 | 能力 | 是否需要 asmr.one 登录 |
-| --- | --- | --- |
-| `/` | 入口目录，显示 `popular/`，登录后显示 `recommend/` | 否 |
-| `/popular/` | 热门作品目录 | 否 |
-| `/popular/RJxxxxxxx/` | 展开热门作品的文件树 | 否 |
-| `/recommend/` | 个人推荐作品目录 | 是 |
-| `/recommend/RJxxxxxxx/` | 展开推荐作品的文件树 | 是 |
-| `/RJxxxxxxx/` | 直接展开指定作品 | 否 |
-| `/01489611/` | 直接展开指定作品，省略 RJ 前缀 | 否 |
-
-根目录示例：
+## WebDAV 目录
 
 ```text
-https://your-worker.example/
+/
 ├── popular/
-└── recommend/  # 只有非 guest Basic Auth 用户可见
-```
+└── recommend/          # 只有非 guest Basic Auth 用户可见
 
-作品目录示例：
-
-```text
-https://your-worker.example/RJ01489611/
+/RJ01489611/
 ├── 01_本編/
 │   ├── TR01.wav
 │   └── TR02.wav
@@ -71,41 +41,21 @@ https://your-worker.example/RJ01489611/
     └── ロゴ無し.png
 ```
 
-## 快速开始
+| 路径 | 能力 | 是否需要 asmr.one 登录 |
+| --- | --- | --- |
+| `/` | 入口目录。`PROPFIND /` 会触发 Basic Auth challenge。 | 否 |
+| `/popular/` | 公开热门作品目录。 | 否 |
+| `/popular/RJxxxxxxx/` | 展开热门作品的文件树。 | 否 |
+| `/recommend/` | 个人推荐作品目录。 | 是 |
+| `/recommend/RJxxxxxxx/` | 展开推荐作品的文件树。 | 是 |
+| `/RJxxxxxxx/` | 直接展开指定作品。 | 否 |
+| `/01489611/` | 省略 `RJ` 前缀直接展开指定作品。 | 否 |
 
-安装依赖：
 
-```bash
-yarn install
-```
+<details>
+<summary>部署与 Cloudflare 绑定</summary>
 
-本地检查：
-
-```bash
-yarn check
-```
-
-本地开发：
-
-```bash
-yarn dev
-```
-
-部署：
-
-```bash
-yarn deploy
-```
-
-部署后可以直接访问：
-
-```text
-https://your-worker.example/RJ01489611/
-```
-
-## Cloudflare 配置
-
-`wrangler.toml` 的基本形态：
+本仓库保留最小化 `wrangler.toml`，不在配置文件里写死 route 或 KV namespace id：
 
 ```toml
 name = "kikoeru2webdav"
@@ -124,87 +74,29 @@ ASMR_POPULAR_PAGE = "1"
 ASMR_POPULAR_PAGE_SIZE = "20"
 ASMR_POPULAR_KEYWORD = " "
 
-ASMR_RECOMMEND_PAGE = "1"
-ASMR_RECOMMEND_PAGE_SIZE = "20"
-ASMR_RECOMMEND_KEYWORD = " "
-
 ASMR_AUTH_VALIDATE_TTL_SECONDS = "300"
 ```
 
-推荐路线可以绑定 KV 来缓存 asmr.one JWT。没有 KV 时也能登录，只是每次推荐请求都会重新登录。KV binding 名固定是 `ASMR_AUTH_KV`；如果你在 Cloudflare 后台管理绑定，请把 namespace 绑定到这个名字。
+项目不维护独立的 WebDAV 用户名/密码。Worker 会解析客户端传来的 Basic Auth：
 
-生产环境不要把真实账号密码写进 `wrangler.toml`。建议使用 Wrangler secrets：
+- 用户名是 `guest` 时进入访客模式。
+- 用户名不是 `guest` 时，这组凭据只在访问 `/recommend/` 时用于登录 asmr.one。
+- `/popular/` 和直接作品路径不需要 asmr.one 登录。
 
-```bash
-npx wrangler secret put DAV_USER
-npx wrangler secret put DAV_PASS
-```
-
-如果你没有设置 `DAV_USER` / `DAV_PASS`，Worker 仍会接受客户端传来的 Basic Auth，并在访问 `/recommend/` 时把这组凭据用于 asmr.one 登录。公开部署时更建议显式设置 Basic Auth，避免任何人都能尝试登录推荐接口。
-
-## 使用 WebDAV 客户端
-
-### rclone
-
-创建配置：
-
-```bash
-rclone config create kiko-webdav webdav url https://your-worker.example/ vendor other
-```
-
-列出入口目录：
-
-```bash
-rclone lsd kiko-webdav:
-```
-
-列出某个作品：
-
-```bash
-rclone ls kiko-webdav:RJ01489611
-```
-
-如果启用了 Basic Auth：
-
-```bash
-rclone config create kiko-webdav webdav \
-  url https://your-worker.example/ \
-  vendor other \
-  user your-user \
-  pass your-password
-```
-
-### Windows 资源管理器
-
-映射网络驱动器时填写：
+KV 是可选能力，推荐给 `/recommend/` 使用。只需要在 Cloudflare 侧把 KV namespace 绑定到固定名字：
 
 ```text
-https://your-worker.example/
+ASMR_AUTH_KV
 ```
 
-也可以直接挂载某个作品：
+如果没有绑定 `ASMR_AUTH_KV`，`/recommend/` 仍然可用，但每次请求都会重新登录 asmr.one，而不是复用缓存 token。
 
-```text
-https://your-worker.example/RJ01489611/
-```
+</details>
 
-### macOS Finder
+<details>
+<summary>热门与推荐接口行为</summary>
 
-Finder 中选择“前往” -> “连接服务器”，填写：
-
-```text
-https://your-worker.example/
-```
-
-## 热门作品
-
-访问：
-
-```text
-https://your-worker.example/popular/
-```
-
-Worker 会请求：
+热门作品使用公开接口：
 
 ```bash
 curl 'https://api.asmr-200.com/api/recommender/popular' \
@@ -212,40 +104,7 @@ curl 'https://api.asmr-200.com/api/recommender/popular' \
   --data-raw '{"keyword":" ","page":1,"pageSize":20,"subtitle":0,"localSubtitledWorks":[],"withPlaylistStatus":[]}'
 ```
 
-支持通过查询参数翻页：
-
-```text
-https://your-worker.example/popular/?page=2&pageSize=20
-```
-
-可配置默认值：
-
-```toml
-ASMR_POPULAR_PAGE = "1"
-ASMR_POPULAR_PAGE_SIZE = "20"
-ASMR_POPULAR_KEYWORD = " "
-ASMR_POPULAR_SUBTITLE = "0"
-```
-
-`/popular/` 是公开接口，不会触发 asmr.one 登录，也不会带 Bearer token。
-
-## 个人推荐
-
-访问：
-
-```text
-https://your-worker.example/recommend/
-```
-
-这个接口需要非 guest 的 Basic Auth。Worker 会：
-
-1. 读取 WebDAV Basic Auth 的用户名和密码。
-2. 请求 `https://api.asmr-200.com/api/auth/me` 登录 asmr.one。
-3. 从响应中读取 `token` 和 `user.recommenderUuid`。
-4. 如果绑定了 `ASMR_AUTH_KV`，把 token 写入 KV 缓存。
-5. 请求个人推荐接口。
-
-推荐接口请求形态：
+推荐作品会先用 WebDAV Basic Auth 凭据登录 asmr.one，然后调用：
 
 ```bash
 curl 'https://api.asmr-200.com/api/recommender/recommend-for-user' \
@@ -254,162 +113,97 @@ curl 'https://api.asmr-200.com/api/recommender/recommend-for-user' \
   --data-raw '{"keyword":" ","recommenderUuid":"<user.recommenderUuid>","page":1,"pageSize":20,"subtitle":0,"localSubtitledWorks":[],"withPlaylistStatus":[]}'
 ```
 
-可配置默认值：
+列表接口支持用查询参数覆盖默认分页：
 
-```toml
-ASMR_RECOMMEND_PAGE = "1"
-ASMR_RECOMMEND_PAGE_SIZE = "20"
-ASMR_RECOMMEND_KEYWORD = " "
-ASMR_RECOMMEND_SUBTITLE = "0"
+```text
+https://your-worker.example/popular/?page=2&pageSize=20
+https://your-worker.example/recommend/?page=2&pageSize=20
 ```
 
-访客账号 `guest` 不能访问 `/recommend/`。根目录中也不会向 guest 显示 `recommend/`。
+</details>
 
-## 认证模式
-
-这个项目有两层认证。
-
-### WebDAV Basic Auth
-
-用于保护 Worker 本身。
-
-```bash
-npx wrangler secret put DAV_USER
-npx wrangler secret put DAV_PASS
-```
-
-设置后，普通用户必须提供这组用户名密码才能访问 WebDAV。
-
-### guest 访客模式
-
-默认启用：
-
-```toml
-DAV_GUEST_USER = "guest"
-DAV_GUEST_ENABLED = "true"
-```
-
-访客可以：
-
-- 浏览 `/`。
-- 浏览 `/popular/`。
-- 打开公开作品目录。
-
-访客不可以：
-
-- 看到根目录下的 `recommend/`。
-- 访问 `/recommend/`。
-- 触发 asmr.one 登录。
-
-关闭访客模式：
-
-```toml
-DAV_GUEST_ENABLED = "false"
-```
-
-### asmr.one Token
-
-用于推荐接口。token 来自 asmr.one 登录响应；绑定 KV 后会缓存 token，未绑定时会按请求现场登录。KV binding 名固定是 `ASMR_AUTH_KV`。
-
-绑定 KV 后，Worker 会定期用 `GET /api/auth/me` 校验缓存 token 是否仍然有效。失效后会重新登录。
-
-## 媒体 URL 字段
-
-作品 track API 的文件节点通常包含多个 URL 字段。默认优先使用：
-
-```toml
-ASMR_URL_FIELD = "mediaDownloadUrl"
-```
-
-常用字段：
-
-| 字段 | 说明 |
-| --- | --- |
-| `mediaDownloadUrl` | 原始下载文件，最适合 WebDAV 和 rclone |
-| `mediaStreamUrl` | 在线播放地址 |
-| `streamLowQualityUrl` | 低码率在线播放地址 |
-
-也可以配置多个优先级：
-
-```toml
-ASMR_URL_FIELDS = '["mediaDownloadUrl", "mediaStreamUrl", "streamLowQualityUrl"]'
-```
-
-## 配置参考
+<details>
+<summary>配置参考</summary>
 
 ### WebDAV
 
 | 变量 | 作用 |
 | --- | --- |
-| `DAV_TITLE` | 根目录标题和默认认证 realm |
-| `DAV_REALM` | Basic Auth realm |
-| `DAV_PREFIX` | WebDAV 挂载路径前缀 |
-| `MOUNT_PATH` | `DAV_PREFIX` 的兼容别名 |
-| `DAV_USER` | WebDAV 用户名，建议用 secret |
-| `DAV_PASS` | WebDAV 密码，建议用 secret |
-| `DAV_GUEST_USER` | guest 用户名，默认 `guest` |
-| `DAV_GUEST_ENABLED` | 是否启用 guest，设为 `"false"` 可关闭 |
+| `DAV_TITLE` | 根目录标题和默认认证 realm。 |
+| `DAV_REALM` | 显式 Basic Auth realm。 |
+| `DAV_PREFIX` | WebDAV 挂载路径前缀。 |
+| `MOUNT_PATH` | `DAV_PREFIX` 的兼容别名。 |
+| `DAV_GUEST_USER` | guest 用户名，默认 `guest`。 |
+| `DAV_GUEST_ENABLED` | 设置为 `"false"` 可关闭 guest 模式。 |
 
 ### asmr track
 
 | 变量 | 作用 |
 | --- | --- |
-| `ASMR_ID_FROM_URL` | 是否启用 `/<RJID>/` 动态路由，默认启用 |
-| `ASMR_API_BASE_URL` | track API base URL |
-| `ASMR_API_VERSION` | track API 版本，默认 `2` |
-| `ASMR_TRACK_ID` | 固定单个作品 id |
-| `ASMR_TRACK_IDS` | 固定多个作品 id |
-| `ASMR_API_URL` | 直接指定 track API URL |
-| `ASMR_PREFIX` | 固定作品导入时的目录前缀 |
-| `ASMR_URL_FIELD` | 单个 URL 字段 |
-| `ASMR_URL_FIELDS` | 多个 URL 字段优先级 |
-| `ASMR_CACHE_TTL_SECONDS` | API 元数据缓存时间 |
-| `ASMR_USER_AGENT` | 请求 asmr API 的 User-Agent |
+| `ASMR_ID_FROM_URL` | 是否启用 `/<RJID>/` 动态路由，默认启用。 |
+| `ASMR_API_BASE_URL` | track API base URL。 |
+| `ASMR_API_VERSION` | track API 版本，默认 `2`。 |
+| `ASMR_TRACK_ID` | 固定单个作品 id。 |
+| `ASMR_TRACK_IDS` | 固定多个作品 id。 |
+| `ASMR_API_URL` | 直接指定 track API URL。 |
+| `ASMR_PREFIX` | 固定作品导入时的目录前缀。 |
+| `ASMR_URL_FIELD` | 首选媒体 URL 字段。 |
+| `ASMR_URL_FIELDS` | 多个媒体 URL 字段的优先级列表。 |
+| `ASMR_CACHE_TTL_SECONDS` | 公开 API 元数据缓存时间。 |
+| `ASMR_USER_AGENT` | 请求 asmr API 的 User-Agent。 |
 
 ### popular
 
 | 变量 | 作用 |
 | --- | --- |
-| `ASMR_POPULAR_PATH` | 热门入口路径，默认 `popular` |
-| `ASMR_POPULAR_API_URL` | 热门 API URL |
-| `ASMR_POPULAR_PAGE` | 默认页码 |
-| `ASMR_POPULAR_PAGE_SIZE` | 默认每页数量 |
-| `ASMR_POPULAR_KEYWORD` | 默认关键词 |
-| `ASMR_POPULAR_SUBTITLE` | 默认字幕筛选 |
-| `ASMR_POPULAR_CACHE_TTL_SECONDS` | 热门列表缓存时间 |
+| `ASMR_POPULAR_PATH` | 热门入口路径，默认 `popular`。 |
+| `ASMR_POPULAR_API_URL` | 热门 API URL。 |
+| `ASMR_POPULAR_PAGE` | 默认页码。 |
+| `ASMR_POPULAR_PAGE_SIZE` | 默认每页数量。 |
+| `ASMR_POPULAR_KEYWORD` | 默认关键词。 |
+| `ASMR_POPULAR_SUBTITLE` | 默认字幕筛选。 |
+| `ASMR_POPULAR_CACHE_TTL_SECONDS` | 热门列表缓存时间。 |
 
 ### recommend
 
 | 变量 | 作用 |
 | --- | --- |
-| `ASMR_RECOMMEND_PATH` | 推荐入口路径，默认 `recommend` |
-| `ASMR_RECOMMEND_API_URL` | 推荐 API URL |
-| `ASMR_RECOMMEND_PAGE` | 默认页码 |
-| `ASMR_RECOMMEND_PAGE_SIZE` | 默认每页数量 |
-| `ASMR_RECOMMEND_KEYWORD` | 默认关键词 |
-| `ASMR_RECOMMEND_SUBTITLE` | 默认字幕筛选 |
-| `ASMR_RECOMMENDER_UUID` | 推荐用户 UUID，通常由登录响应自动提供 |
+| `ASMR_RECOMMEND_PATH` | 推荐入口路径，默认 `recommend`。 |
+| `ASMR_RECOMMEND_API_URL` | 推荐 API URL。 |
+| `ASMR_RECOMMEND_PAGE` | 默认页码。 |
+| `ASMR_RECOMMEND_PAGE_SIZE` | 默认每页数量。 |
+| `ASMR_RECOMMEND_KEYWORD` | 默认关键词。 |
+| `ASMR_RECOMMEND_SUBTITLE` | 默认字幕筛选。 |
+| `ASMR_RECOMMENDER_UUID` | 推荐用户 UUID，通常由登录响应自动提供。 |
 
-### auth / KV
+### auth and KV
 
 | 变量 | 作用 |
 | --- | --- |
-| `ASMR_AUTH_KV` | 固定 KV binding 名，用于缓存 token |
-| `ASMR_AUTH_URL` | 登录和校验 URL |
-| `ASMR_AUTH_VALIDATE_TTL_SECONDS` | token 校验间隔 |
-| `ASMR_AUTH_FROM_BASIC` | 设为 `"false"` 可禁用从 Basic Auth 登录 asmr.one |
-| `ASMR_AUTHORIZATION` | 手动提供 Bearer 授权 |
+| `ASMR_AUTH_KV` | 固定 KV binding 名，用于缓存 token。 |
+| `ASMR_AUTH_URL` | 登录和校验 URL。 |
+| `ASMR_AUTH_VALIDATE_TTL_SECONDS` | token 校验间隔。 |
+| `ASMR_AUTH_FROM_BASIC` | 设置为 `"false"` 可禁用从 Basic Auth 登录 asmr.one。 |
+| `ASMR_AUTHORIZATION` | 预置 Bearer 授权值。 |
 
-## 缓存策略
+</details>
 
-- track API 和 popular API 的公开响应使用 Worker isolate 内的内存缓存。
-- 推荐接口是用户相关数据，不做共享内存缓存。
-- 带 Bearer token 的 track 请求不会使用公开缓存。
-- 如果绑定了 `ASMR_AUTH_KV`，asmr.one JWT token 会存储在 Cloudflare KV。
-- KV token 会根据 JWT 过期时间和 `ASMR_AUTH_VALIDATE_TTL_SECONDS` 做复用与校验；未绑定 KV 时每次推荐请求都会现场登录。
-- Worker 内存缓存不是持久存储，新的 isolate 可能重新请求 API。
+<details>
+<summary>项目架构</summary>
 
-## 项目结构
+```text
+asmr track API
+popular API
+recommend API
+        |
+        v
+  files / dirs manifest
+        |
+        v
+WebDAV XML / HTML index / streamed file proxy
+```
+
+目录结构：
 
 ```text
 src/
@@ -418,67 +212,45 @@ src/
   routing/context.js    URL 到路由上下文的转换
   asmr/api.js           track / popular / recommend API 客户端
   asmr/auth.js          asmr.one 登录、token 校验、KV 缓存
-  asmr/manifest.js      把 API/config 转换成 WebDAV manifest
+  asmr/manifest.js      API/config 到 WebDAV manifest 的转换
   http/auth.js          WebDAV Basic Auth 和 guest 模式
   http/proxy.js         远程文件流式代理
   webdav/               DAV 路径、目录、XML/HTML 响应
   shared/               通用错误和字符串工具
-test/run-tests.mjs      自定义测试入口
+test/run-tests.mjs      自定义 Node 测试入口
 ```
 
-更详细的 agent 交接文档见 [CLAUDE.md](./CLAUDE.md)。
+WebDAV 层只消费统一的 manifest，不需要知道文件来自直接作品、热门列表还是推荐列表。
 
-## 开发和测试
+更详细的维护者交接文档见 [CLAUDE.md](./CLAUDE.md)。
 
-语法检查和测试：
+</details>
+
+<details>
+<summary>开发、测试与安全说明</summary>
 
 ```bash
 yarn check
-```
-
-只跑测试：
-
-```bash
 yarn test
-```
-
-本地 Worker：
-
-```bash
 yarn dev
 ```
 
-测试覆盖了：
+测试覆盖：
 
-- 路径编码和 Unicode 文件名。
-- asmr track API 树展开。
-- `/popular/` 作品列表和作品展开。
-- `/recommend/` 登录、token 缓存和推荐请求。
+- DAV 路径规范化和 Unicode 文件名。
+- asmr track API 文件树展开。
+- `/popular/` 列表和作品展开。
+- `/recommend/` 登录、token 缓存和请求体。
+- 根目录 WebDAV Basic Auth challenge。
 - guest 访问规则。
-- 根目录入口显示规则。
 - Range 代理。
 
-## 安全说明
+安全说明：
 
-- 不要把真实 asmr.one 密码写进源码、README 或 `wrangler.toml`。
+- 不要提交真实 asmr.one 密码。
 - 不要提交 JWT token。
-- 生产环境建议用 Wrangler secrets 保存 `DAV_USER` 和 `DAV_PASS`。
-- `wrangler.toml` 中的 KV id 应使用你自己的 namespace id。
-- Worker 是只读 WebDAV，不支持上传、删除、移动或创建目录。
-- 文件内容来自远端 API 返回的 URL，Worker 只做流式代理。
+- Worker 是只读 WebDAV，会拒绝上传、删除、移动等写入行为。
+- 媒体内容来自上游 URL 流式转发，不会存入 Cloudflare。
+- 目录可见性依赖 API 响应；如果 API 不返回某个文件，WebDAV 也不会显示它。
 
-## 限制
-
-- 目录结构依赖 asmr-200 API 返回值；如果 API 没返回某个文件，WebDAV 中也不会出现。
-- Cloudflare Worker 内存缓存不是持久缓存，不能替代 KV、R2 或数据库。
-- 推荐接口依赖 asmr.one 登录和 `recommenderUuid`，guest 无法使用。
-- 大文件代理依赖远端是否支持 Range 和稳定下载链接。
-- 这是 WebDAV 映射工具，不是媒体库数据库，也不负责补全元数据。
-
-## 设计原则
-
-- 只读优先：避免 WebDAV 客户端误写入远端资源。
-- 流式优先：媒体响应不读入内存，直接代理。
-- API 与 WebDAV 解耦：所有外部数据先转成 manifest，再由 WebDAV 层渲染。
-- public 与 authenticated 分离：`/popular/` 不登录，`/recommend/` 才登录。
-- guest 可浏览公共内容，但不能触发用户态推荐。
+</details>
