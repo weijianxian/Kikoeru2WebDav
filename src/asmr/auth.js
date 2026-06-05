@@ -12,17 +12,25 @@ export async function envWithAsmrAuthorization(env, credentials) {
     return env;
   }
 
-  const store = asmrTokenStore(env);
-  if (!store || !credentials?.username || !credentials?.password) {
+  if (!credentials?.username || !credentials?.password) {
     return env;
   }
 
-  const token = await tokenForCredentials(env, store, credentials);
+  const store = asmrTokenStore(env);
+  const token = store
+    ? await tokenForCredentials(env, store, credentials)
+    : await uncachedTokenForCredentials(env, credentials);
+
   return {
     ...env,
     ASMR_AUTHORIZATION: `Bearer ${token.token}`,
     ASMR_RECOMMENDER_UUID: token.recommenderUuid || env.ASMR_RECOMMENDER_UUID,
   };
+}
+
+async function uncachedTokenForCredentials(env, credentials) {
+  const login = await loginAsmr(credentials, env);
+  return tokenRecord(login.token, Date.now(), login.user);
 }
 
 async function tokenForCredentials(env, store, credentials) {
@@ -142,8 +150,7 @@ function authHeaders(extra = {}) {
 }
 
 function asmrTokenStore(env) {
-  const bindingName = env.ASMR_AUTH_KV_BINDING || "ASMR_AUTH_KV";
-  const store = env[bindingName];
+  const store = env.ASMR_AUTH_KV;
   if (store && typeof store.get === "function" && typeof store.put === "function") {
     return store;
   }

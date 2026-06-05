@@ -160,12 +160,12 @@ Implemented in `src/asmr/auth.js`.
 - `envWithAsmrAuthorization(env, credentials)` returns a copy of `env` containing:
   - `ASMR_AUTHORIZATION = "Bearer <token>"`,
   - `ASMR_RECOMMENDER_UUID`.
-- Tokens are stored in a KV binding by default named `ASMR_AUTH_KV`.
-- `ASMR_AUTH_KV_BINDING` can override the binding name.
+- If a KV binding is available, tokens are stored in the binding named `ASMR_AUTH_KV`.
 - KV records are keyed by a SHA-256 hash of the lowercased username, not the raw username.
 - Cached tokens are checked for JWT expiration.
 - Valid cached tokens are revalidated with `GET /api/auth/me` after `ASMR_AUTH_VALIDATE_TTL_SECONDS`.
 - Expired or invalid tokens cause a new `POST /api/auth/me` login.
+- If no KV binding is available, `/recommend/` still logs in with Basic Auth credentials for that request, but the token is not cached.
 
 ## Upstream API Clients
 
@@ -328,8 +328,7 @@ Configured in `wrangler.toml`, Wrangler secrets, or the Worker environment.
 
 ### asmr Auth
 
-- `ASMR_AUTH_KV`: default KV binding used to store token records.
-- `ASMR_AUTH_KV_BINDING`: override the binding name.
+- `ASMR_AUTH_KV`: fixed optional KV binding used to store token records.
 - `ASMR_AUTH_URL`: override auth endpoint.
 - `ASMR_AUTH_VALIDATE_TTL_SECONDS`: cached token validation interval.
 - `ASMR_AUTH_FROM_BASIC`: set to `"false"` to disable asmr login from WebDAV Basic Auth.
@@ -341,7 +340,8 @@ Configured in `wrangler.toml`, Wrangler secrets, or the Worker environment.
 - Authorized track API requests do not use the public cache.
 - Popular listings are cached only when no authorization header is present.
 - Recommendation responses are not module-cached because they are user-specific.
-- asmr JWT tokens are stored in KV, not in the module-level API cache.
+- asmr JWT tokens are stored in KV when a KV binding is available, not in the module-level API cache.
+- Without KV, authenticated recommendation requests log in per request.
 - The module-level cache is per Worker isolate and should be treated as opportunistic, not durable.
 
 ## Error Handling

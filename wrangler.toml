@@ -2,11 +2,6 @@ name = "kikoeru2webdav"
 main = "src/index.js"
 compatibility_date = "2026-06-05"
 
-# Bind a KV namespace to cache asmr.one JWT tokens for authenticated recommendation routes.
-# [[kv_namespaces]]
-# binding = "ASMR_AUTH_KV"
-# id = "replace-with-your-kv-namespace-id"
-
 [vars]
 # Pass the work id in the URL path, for example:
 # https://your-worker.example/01489611/

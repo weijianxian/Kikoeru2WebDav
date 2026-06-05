@@ -284,6 +284,57 @@ await test("lists recommended works through authenticated asmr recommendations",
   }
 });
 
+await test("logs into asmr without a KV binding for uncached recommendations", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push(String(url));
+
+    if (url === "https://api.asmr-200.com/api/auth/me") {
+      assert.equal(init.method, "POST");
+      assert.deepEqual(JSON.parse(init.body), {
+        name: "listener",
+        password: "secret",
+      });
+
+      return Response.json({
+        user: { loggedIn: true, name: "listener", recommenderUuid },
+        token: "uncached-token",
+      });
+    }
+
+    assert.equal(url, "https://api.asmr-200.com/api/recommender/recommend-for-user");
+    assert.equal(init.headers.get("authorization"), "Bearer uncached-token");
+    assert.equal(JSON.parse(init.body).recommenderUuid, recommenderUuid);
+
+    return Response.json(popularWorks);
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://dav.example/recommend/", {
+        method: "PROPFIND",
+        headers: {
+          Authorization: basicAuth("listener", "secret"),
+          Depth: "1",
+        },
+      }),
+      {
+        ASMR_CACHE_TTL_SECONDS: "0",
+      },
+    );
+
+    assert.equal(response.status, 207);
+    assert.deepEqual(calls, [
+      "https://api.asmr-200.com/api/auth/me",
+      "https://api.asmr-200.com/api/recommender/recommend-for-user",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await test("rejects guest Basic Auth for recommended works", async () => {
   const originalFetch = globalThis.fetch;
 

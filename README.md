@@ -13,7 +13,7 @@
 - 根目录 `/` 自动显示入口目录：
   - 未登录或 `guest` 访客只显示 `popular/`。
   - 非 guest 的 Basic Auth 用户会额外看到 `recommend/`。
-- 用 WebDAV Basic Auth 的用户名和密码登录 asmr.one，并把 JWT token 缓存在 Cloudflare KV。
+- 用 WebDAV Basic Auth 的用户名和密码登录 asmr.one，并可把 JWT token 缓存在 Cloudflare KV。
 - 支持 guest 匿名模式：用户名 `guest`，密码随意，可以浏览不需要登录的接口。
 - 支持 WebDAV `PROPFIND`、`GET`、`HEAD`、`OPTIONS`。
 - 支持浏览器 HTML 目录页，也支持标准 WebDAV 客户端。
@@ -131,13 +131,7 @@ ASMR_RECOMMEND_KEYWORD = " "
 ASMR_AUTH_VALIDATE_TTL_SECONDS = "300"
 ```
 
-推荐路线需要 KV 缓存 asmr.one JWT。创建 KV namespace 后绑定：
-
-```toml
-[[kv_namespaces]]
-binding = "ASMR_AUTH_KV"
-id = "your-kv-namespace-id"
-```
+推荐路线可以绑定 KV 来缓存 asmr.one JWT。没有 KV 时也能登录，只是每次推荐请求都会重新登录。KV binding 名固定是 `ASMR_AUTH_KV`；如果你在 Cloudflare 后台管理绑定，请把 namespace 绑定到这个名字。
 
 生产环境不要把真实账号密码写进 `wrangler.toml`。建议使用 Wrangler secrets：
 
@@ -247,8 +241,8 @@ https://your-worker.example/recommend/
 
 1. 读取 WebDAV Basic Auth 的用户名和密码。
 2. 请求 `https://api.asmr-200.com/api/auth/me` 登录 asmr.one。
-3. 从响应中保存 `token` 和 `user.recommenderUuid`。
-4. 把 token 缓存在 `ASMR_AUTH_KV`。
+3. 从响应中读取 `token` 和 `user.recommenderUuid`。
+4. 如果绑定了 `ASMR_AUTH_KV`，把 token 写入 KV 缓存。
 5. 请求个人推荐接口。
 
 推荐接口请求形态：
@@ -315,18 +309,9 @@ DAV_GUEST_ENABLED = "false"
 
 ### asmr.one Token
 
-用于推荐接口。token 来自 asmr.one 登录响应，并存进 KV。
+用于推荐接口。token 来自 asmr.one 登录响应；绑定 KV 后会缓存 token，未绑定时会按请求现场登录。KV binding 名固定是 `ASMR_AUTH_KV`。
 
-```toml
-[[kv_namespaces]]
-binding = "ASMR_AUTH_KV"
-id = "your-kv-namespace-id"
-
-[vars]
-ASMR_AUTH_VALIDATE_TTL_SECONDS = "300"
-```
-
-Worker 会定期用 `GET /api/auth/me` 校验缓存 token 是否仍然有效。失效后会重新登录。
+绑定 KV 后，Worker 会定期用 `GET /api/auth/me` 校验缓存 token 是否仍然有效。失效后会重新登录。
 
 ## 媒体 URL 字段
 
@@ -409,8 +394,7 @@ ASMR_URL_FIELDS = '["mediaDownloadUrl", "mediaStreamUrl", "streamLowQualityUrl"]
 
 | 变量 | 作用 |
 | --- | --- |
-| `ASMR_AUTH_KV` | 默认 KV binding 名 |
-| `ASMR_AUTH_KV_BINDING` | 自定义 KV binding 名 |
+| `ASMR_AUTH_KV` | 固定 KV binding 名，用于缓存 token |
 | `ASMR_AUTH_URL` | 登录和校验 URL |
 | `ASMR_AUTH_VALIDATE_TTL_SECONDS` | token 校验间隔 |
 | `ASMR_AUTH_FROM_BASIC` | 设为 `"false"` 可禁用从 Basic Auth 登录 asmr.one |
@@ -421,8 +405,8 @@ ASMR_URL_FIELDS = '["mediaDownloadUrl", "mediaStreamUrl", "streamLowQualityUrl"]
 - track API 和 popular API 的公开响应使用 Worker isolate 内的内存缓存。
 - 推荐接口是用户相关数据，不做共享内存缓存。
 - 带 Bearer token 的 track 请求不会使用公开缓存。
-- asmr.one JWT token 存储在 Cloudflare KV。
-- KV token 会根据 JWT 过期时间和 `ASMR_AUTH_VALIDATE_TTL_SECONDS` 做复用与校验。
+- 如果绑定了 `ASMR_AUTH_KV`，asmr.one JWT token 会存储在 Cloudflare KV。
+- KV token 会根据 JWT 过期时间和 `ASMR_AUTH_VALIDATE_TTL_SECONDS` 做复用与校验；未绑定 KV 时每次推荐请求都会现场登录。
 - Worker 内存缓存不是持久存储，新的 isolate 可能重新请求 API。
 
 ## 项目结构
