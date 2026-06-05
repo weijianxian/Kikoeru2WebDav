@@ -49,6 +49,10 @@ export async function handleRequest(request, env = {}) {
     return textResponse("Method not allowed.\n", 405);
   } catch (error) {
     if (error instanceof HttpError) {
+      if (error.status === 401) {
+        return unauthorizedResponse(env, `${error.message}\n`);
+      }
+
       return textResponse(`${error.message}\n`, error.status);
     }
 

@@ -56,9 +56,9 @@ export function basicCredentialsFromRequest(request) {
   };
 }
 
-export function unauthorizedResponse(env) {
+export function unauthorizedResponse(env, body = "Authentication required.\n") {
   const realm = env.DAV_REALM || env.DAV_TITLE || "remote-webdav";
-  return new Response("Authentication required.\n", {
+  return new Response(body, {
     status: 401,
     headers: davHeaders({
       "Content-Type": "text/plain; charset=utf-8",

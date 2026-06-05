@@ -335,6 +335,32 @@ await test("logs into asmr without a KV binding for uncached recommendations", a
   }
 });
 
+await test("challenges unauthenticated Basic Auth clients for recommended works", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://dav.example/recommend/", {
+        method: "PROPFIND",
+        headers: { Depth: "1" },
+      }),
+      {
+        DAV_TITLE: "asmr-webdav",
+      },
+    );
+
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get("WWW-Authenticate"), /^Basic realm="asmr-webdav"/);
+    assert.match(await response.text(), /ASMR authentication required/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await test("rejects guest Basic Auth for recommended works", async () => {
   const originalFetch = globalThis.fetch;
 
@@ -359,6 +385,7 @@ await test("rejects guest Basic Auth for recommended works", async () => {
     );
 
     assert.equal(response.status, 401);
+    assert.match(response.headers.get("WWW-Authenticate"), /^Basic /);
     assert.match(await response.text(), /ASMR authentication required/);
   } finally {
     globalThis.fetch = originalFetch;
