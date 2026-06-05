@@ -2,12 +2,22 @@ name = "kikoeru2webdav"
 main = "src/index.js"
 compatibility_date = "2026-06-05"
 
+# Bind a KV namespace to cache asmr.one JWT tokens for authenticated recommendation routes.
+[[kv_namespaces]]
+binding = "ASMR_AUTH_KV"
+id = token-kv-db"
+
 [vars]
 # Pass the work id in the URL path, for example:
 # https://your-worker.example/01489611/
+# The root path lists /popular/ for everyone and /recommend/ for non-guest Basic Auth users.
 ASMR_URL_FIELD = "mediaDownloadUrl"
 ASMR_CACHE_TTL_SECONDS = "300"
 DAV_TITLE = "asmr-webdav"
+
+# Guest Basic Auth user can browse public APIs with any password.
+DAV_GUEST_USER = "guest"
+DAV_GUEST_ENABLED = "true"
 
 # Popular works are available at /popular/. Query params can override
 # page/pageSize, for example /popular/?page=2&pageSize=20.
@@ -15,13 +25,10 @@ ASMR_POPULAR_PAGE = "1"
 ASMR_POPULAR_PAGE_SIZE = "20"
 ASMR_POPULAR_KEYWORD = " "
 
-# Optional manual entries can still be added. Relative paths require
-# REMOTE_BASE_URL; full URLs work without it.
-# VIRTUAL_FILES = '''
-# [
-#   {
-#     "path": "manual/07表白.mp3",
-#     "url": "https://raw.kiko-play-niptan.one/media/stream/daily/2026-05-30/RJ01557615/GKSD049/01%EF%BC%9A%E3%80%90mp3%E3%80%91%E6%AD%A3%E7%AF%87/07%E8%A1%A8%E7%99%BD.mp3"
-#   }
-# ]
-# '''
+# Recommended works are available at /recommend/ and require asmr.one auth.
+ASMR_RECOMMEND_PAGE = "1"
+ASMR_RECOMMEND_PAGE_SIZE = "20"
+ASMR_RECOMMEND_KEYWORD = " "
+
+# Cached JWT tokens are rechecked with /api/auth/me after this many seconds.
+ASMR_AUTH_VALIDATE_TTL_SECONDS = "300"

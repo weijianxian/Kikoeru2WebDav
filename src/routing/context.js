@@ -1,5 +1,5 @@
 import { hasStaticSourceConfig } from "../asmr/manifest.js";
-import { DEFAULT_ASMR_POPULAR_PATH } from "../asmr/constants.js";
+import { DEFAULT_ASMR_POPULAR_PATH, DEFAULT_ASMR_RECOMMEND_PATH } from "../asmr/constants.js";
 import { isAsmrTrackIdSegment } from "../asmr/ids.js";
 import { HttpError } from "../shared/errors.js";
 import {
@@ -15,6 +15,25 @@ export function routeContextFromRequest(request, env) {
 
   if (env.ASMR_ID_FROM_URL !== "false") {
     const segments = pathSegments(mountedPath);
+    if (segments.length === 0 && !hasStaticSourceConfig(env)) {
+      const mount = normalizeMountPath(env.DAV_PREFIX || env.MOUNT_PATH || "/");
+
+      return {
+        path: "/",
+        env: {
+          ...env,
+          DAV_HREF_PREFIX: mount,
+          DAV_TITLE: env.DAV_TITLE || "asmr-webdav",
+        },
+        rootIndex: true,
+      };
+    }
+
+    const recommendContext = recommendContextFromSegments(segments, request, env);
+    if (recommendContext) {
+      return recommendContext;
+    }
+
     const popularContext = popularContextFromSegments(segments, request, env);
     if (popularContext) {
       return popularContext;
@@ -53,6 +72,50 @@ export function routeContextFromRequest(request, env) {
   return {
     path: mountedPath,
     env,
+  };
+}
+
+function recommendContextFromSegments(segments, request, env) {
+  const recommendPath = sanitizeDavSegment(env.ASMR_RECOMMEND_PATH || DEFAULT_ASMR_RECOMMEND_PATH);
+  if (!recommendPath || segments[0] !== recommendPath) {
+    return undefined;
+  }
+
+  const mount = normalizeMountPath(env.DAV_PREFIX || env.MOUNT_PATH || "/");
+  const searchParams = new URL(request.url).searchParams;
+
+  if (segments.length === 1) {
+    return {
+      path: "/",
+      env: {
+        ...env,
+        DAV_HREF_PREFIX: joinDavPath(mount, recommendPath),
+        DAV_TITLE: env.ASMR_RECOMMEND_TITLE || "recommend",
+      },
+      recommendIndex: true,
+      requiresAsmrAuth: true,
+      searchParams,
+    };
+  }
+
+  const trackId = segments[1];
+  if (!isAsmrTrackIdSegment(trackId)) {
+    throw new HttpError(404, "Not found.");
+  }
+
+  const rest = segments.slice(2);
+  return {
+    path: rest.length ? `/${rest.join("/")}` : "/",
+    env: {
+      ...env,
+      ASMR_API_URL: undefined,
+      ASMR_TRACK_ID: trackId,
+      ASMR_TRACK_IDS: undefined,
+      ASMR_PREFIX: "",
+      DAV_HREF_PREFIX: joinDavPath(mount, recommendPath, trackId),
+      DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
+    },
+    requiresAsmrAuth: true,
   };
 }
 

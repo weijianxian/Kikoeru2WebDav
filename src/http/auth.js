@@ -1,35 +1,59 @@
 import { escapeHeaderValue } from "../shared/strings.js";
 import { davHeaders } from "../webdav/responses.js";
 
-export function isAuthorized(request, env) {
+export function authenticateRequest(request, env) {
   const expectedUser = env.DAV_USER ?? "";
   const expectedPass = env.DAV_PASS ?? "";
+  const credentials = basicCredentialsFromRequest(request);
+  const guestCredentials = credentials && asGuestCredentials(credentials, env);
 
   if (!expectedUser && !expectedPass) {
-    return true;
+    return { authorized: true, credentials: guestCredentials || credentials };
   }
 
+  if (!credentials) {
+    return { authorized: false };
+  }
+
+  if (guestCredentials) {
+    return { authorized: true, credentials: guestCredentials };
+  }
+
+  return {
+    authorized:
+      constantTimeEqual(credentials.username, expectedUser) &&
+      constantTimeEqual(credentials.password, expectedPass),
+    credentials,
+  };
+}
+
+export function isAuthorized(request, env) {
+  return authenticateRequest(request, env).authorized;
+}
+
+export function basicCredentialsFromRequest(request) {
   const header = request.headers.get("authorization") ?? "";
   const match = header.match(/^Basic\s+(.+)$/i);
   if (!match) {
-    return false;
+    return undefined;
   }
 
   let decoded = "";
   try {
     decoded = atob(match[1]);
   } catch {
-    return false;
+    return undefined;
   }
 
   const separator = decoded.indexOf(":");
   if (separator === -1) {
-    return false;
+    return undefined;
   }
 
-  const user = decoded.slice(0, separator);
-  const pass = decoded.slice(separator + 1);
-  return constantTimeEqual(user, expectedUser) && constantTimeEqual(pass, expectedPass);
+  return {
+    username: decoded.slice(0, separator),
+    password: decoded.slice(separator + 1),
+  };
 }
 
 export function unauthorizedResponse(env) {
@@ -52,4 +76,20 @@ function constantTimeEqual(actual, expected) {
   }
 
   return diff === 0;
+}
+
+function asGuestCredentials(credentials, env) {
+  if (env.DAV_GUEST_ENABLED === "false") {
+    return undefined;
+  }
+
+  const guestUser = env.DAV_GUEST_USER || "guest";
+  if (!constantTimeEqual(credentials.username, guestUser)) {
+    return undefined;
+  }
+
+  return {
+    ...credentials,
+    guest: true,
+  };
 }

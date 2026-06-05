@@ -1,5 +1,12 @@
-import { buildManifest, buildPopularManifest, fileEntry } from "../asmr/manifest.js";
-import { isAuthorized, unauthorizedResponse } from "../http/auth.js";
+import {
+  buildManifest,
+  buildPopularManifest,
+  buildRecommendManifest,
+  buildRootManifest,
+  fileEntry,
+} from "../asmr/manifest.js";
+import { envWithAsmrAuthorization } from "../asmr/auth.js";
+import { authenticateRequest, unauthorizedResponse } from "../http/auth.js";
 import { proxyRemoteFile } from "../http/proxy.js";
 import { textResponse } from "../http/responses.js";
 import { routeContextFromRequest } from "../routing/context.js";
@@ -17,7 +24,8 @@ import {
 
 export async function handleRequest(request, env = {}) {
   try {
-    if (!isAuthorized(request, env)) {
+    const authentication = authenticateRequest(request, env);
+    if (!authentication.authorized) {
       return unauthorizedResponse(env);
     }
 
@@ -28,11 +36,11 @@ export async function handleRequest(request, env = {}) {
     }
 
     if (method === "PROPFIND") {
-      return await propfindResponse(request, env);
+      return await propfindResponse(request, env, authentication.credentials);
     }
 
     if (method === "GET" || method === "HEAD") {
-      return await readResponse(request, env);
+      return await readResponse(request, env, authentication.credentials);
     }
 
     if (MUTATING_METHODS.has(method)) {
@@ -50,21 +58,20 @@ export async function handleRequest(request, env = {}) {
   }
 }
 
-async function propfindResponse(request, env) {
+async function propfindResponse(request, env, credentials) {
   const context = routeContextFromRequest(request, env);
   if (context.needsTrackId) {
     return missingTrackIdResponse(request, env);
   }
 
-  const manifest = context.popularIndex
-    ? await buildPopularManifest(context.env, context.searchParams)
-    : await buildManifest(context.env);
+  const contextEnv = await envForContext(context, credentials);
+  const manifest = await manifestForContext(context, contextEnv, credentials);
   const path = context.path;
   const depth = parseDepth(request.headers.get("depth"));
 
   const file = manifest.files.get(path);
   if (file) {
-    return multistatusResponse([file], env);
+    return multistatusResponse([file], contextEnv);
   }
 
   const directory = manifest.dirs.get(path);
@@ -77,18 +84,17 @@ async function propfindResponse(request, env) {
     nodes.push(...childrenForDirectory(path, manifest, depth));
   }
 
-  return multistatusResponse(nodes, context.env);
+  return multistatusResponse(nodes, contextEnv);
 }
 
-async function readResponse(request, env) {
+async function readResponse(request, env, credentials) {
   const context = routeContextFromRequest(request, env);
   if (context.needsTrackId) {
     return missingTrackIdResponse(request, env);
   }
 
-  const manifest = context.popularIndex
-    ? await buildPopularManifest(context.env, context.searchParams)
-    : await buildManifest(context.env);
+  const contextEnv = await envForContext(context, credentials);
+  const manifest = await manifestForContext(context, contextEnv, credentials);
   const path = context.path;
 
   if (manifest.dirs.has(path)) {
@@ -99,14 +105,14 @@ async function readResponse(request, env) {
       });
     }
 
-    return htmlIndexResponse(path, manifest, context.env);
+    return htmlIndexResponse(path, manifest, contextEnv);
   }
 
   let file = manifest.files.get(path);
-  if (!file && context.env.REMOTE_BASE_URL && context.env.ALLOW_REMOTE_PATH_FALLBACK !== "false") {
+  if (!file && contextEnv.REMOTE_BASE_URL && contextEnv.ALLOW_REMOTE_PATH_FALLBACK !== "false") {
     file = fileEntry({
       path,
-      url: remoteUrlFromPath(context.env.REMOTE_BASE_URL, path),
+      url: remoteUrlFromPath(contextEnv.REMOTE_BASE_URL, path),
     });
   }
 
@@ -114,5 +120,43 @@ async function readResponse(request, env) {
     return textResponse("Not found.\n", 404);
   }
 
-  return proxyRemoteFile(request, file, context.env);
+  return proxyRemoteFile(request, file, contextEnv);
+}
+
+async function envForContext(context, credentials) {
+  if (!shouldUseAsmrAuthorization(context)) {
+    return context.env;
+  }
+
+  if (!credentials || credentials.guest) {
+    throw new HttpError(401, "ASMR authentication required.");
+  }
+
+  return await envWithAsmrAuthorization(context.env, credentials);
+}
+
+function shouldUseAsmrAuthorization(context) {
+  return context.requiresAsmrAuth === true;
+}
+
+async function manifestForContext(context, env, credentials) {
+  if (context.rootIndex) {
+    return buildRootManifest(env, {
+      includeRecommend: canSeeRecommend(credentials),
+    });
+  }
+
+  if (context.recommendIndex) {
+    return await buildRecommendManifest(env, context.searchParams);
+  }
+
+  if (context.popularIndex) {
+    return await buildPopularManifest(env, context.searchParams);
+  }
+
+  return await buildManifest(env);
+}
+
+function canSeeRecommend(credentials) {
+  return Boolean(credentials && !credentials.guest);
 }

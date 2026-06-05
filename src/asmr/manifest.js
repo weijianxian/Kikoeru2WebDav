@@ -8,8 +8,17 @@ import {
   remoteUrlFromPath,
   sanitizeDavSegment,
 } from "../webdav/paths.js";
-import { asmrApiUrlForTrack, fetchAsmrPopularWorks, fetchAsmrTrackTree } from "./api.js";
-import { DEFAULT_ASMR_URL_FIELDS } from "./constants.js";
+import {
+  asmrApiUrlForTrack,
+  fetchAsmrPopularWorks,
+  fetchAsmrRecommendedWorks,
+  fetchAsmrTrackTree,
+} from "./api.js";
+import {
+  DEFAULT_ASMR_POPULAR_PATH,
+  DEFAULT_ASMR_RECOMMEND_PATH,
+  DEFAULT_ASMR_URL_FIELDS,
+} from "./constants.js";
 
 export async function buildManifest(env = {}) {
   const files = new Map();
@@ -45,6 +54,44 @@ export async function buildManifest(env = {}) {
 
 export async function buildPopularManifest(env = {}, searchParams = new URLSearchParams()) {
   const works = await fetchAsmrPopularWorks(env, searchParams);
+  return buildWorksManifest(works);
+}
+
+export async function buildRecommendManifest(env = {}, searchParams = new URLSearchParams()) {
+  const works = await fetchAsmrRecommendedWorks(env, searchParams);
+  return buildWorksManifest(works);
+}
+
+export function buildRootManifest(env = {}, options = {}) {
+  const dirs = new Map();
+  const files = new Map();
+  const popularPath = sanitizeDavSegment(env.ASMR_POPULAR_PATH || DEFAULT_ASMR_POPULAR_PATH);
+  const recommendPath = sanitizeDavSegment(env.ASMR_RECOMMEND_PATH || DEFAULT_ASMR_RECOMMEND_PATH);
+
+  dirs.set("/", { type: "dir", path: "/" });
+
+  if (popularPath) {
+    dirs.set(`/${popularPath}`, {
+      type: "dir",
+      path: `/${popularPath}`,
+      displayName: popularPath,
+      sortOrder: 0,
+    });
+  }
+
+  if (options.includeRecommend && recommendPath) {
+    dirs.set(`/${recommendPath}`, {
+      type: "dir",
+      path: `/${recommendPath}`,
+      displayName: recommendPath,
+      sortOrder: 1,
+    });
+  }
+
+  return { files, dirs };
+}
+
+function buildWorksManifest(works) {
   const dirs = new Map();
   const files = new Map();
   const seen = new Set();
