@@ -1,5 +1,5 @@
 name = "kikoeru2webdav"
-main = "src/worker.js"
+main = "src/index.js"
 compatibility_date = "2026-06-05"
 
 [vars]

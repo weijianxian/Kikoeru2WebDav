@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildManifest, handleRequest, normalizeDavPath } from "../src/worker.js";
+import { buildManifest, handleRequest, normalizeDavPath } from "../src/index.js";
 
 const remoteBase =
   "https://raw.kiko-play-niptan.one/media/stream/daily/2026-05-30/RJ01557615/GKSD049/01%EF%BC%9A%E3%80%90mp3%E3%80%91%E6%AD%A3%E7%AF%87";
