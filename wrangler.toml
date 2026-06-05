@@ -1,4 +1,4 @@
-name = "raw-kiko-webdav"
+name = "kikoeru2webdav"
 main = "src/worker.js"
 compatibility_date = "2026-06-05"
 
