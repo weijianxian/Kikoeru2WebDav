@@ -55,6 +55,28 @@ npm run check
 https://你的-worker域名/01557615/
 ```
 
+## 热门作品
+
+访问 `/popular/` 可以用 recommender 的热门接口生成作品目录：
+
+```text
+https://你的-worker域名/popular/
+```
+
+Worker 会请求：
+
+```bash
+curl 'https://api.asmr-200.com/api/recommender/popular' \
+  -H 'Content-Type: application/json' \
+  --data-raw '{"keyword":" ","page":1,"pageSize":20,"subtitle":0,"localSubtitledWorks":[],"withPlaylistStatus":[]}'
+```
+
+目录里的每个作品会链接到 `/popular/RJxxxxxxx/`，进入后继续按原来的 track API 展开文件树。也可以通过查询参数翻页：
+
+```text
+https://你的-worker域名/popular/?page=2&pageSize=20
+```
+
 ## 配置
 
 选择实际代理哪个 URL 字段：
@@ -73,6 +95,15 @@ ASMR_URL_FIELD = "mediaDownloadUrl"
 
 ```toml
 ASMR_URL_FIELDS = '["mediaDownloadUrl", "mediaStreamUrl", "streamLowQualityUrl"]'
+```
+
+热门接口默认参数可以在 `wrangler.toml` 中配置：
+
+```toml
+ASMR_POPULAR_PAGE = "1"
+ASMR_POPULAR_PAGE_SIZE = "20"
+ASMR_POPULAR_KEYWORD = " "
+ASMR_POPULAR_SUBTITLE = "0"
 ```
 
 ## 可选认证

@@ -9,6 +9,12 @@ ASMR_URL_FIELD = "mediaDownloadUrl"
 ASMR_CACHE_TTL_SECONDS = "300"
 DAV_TITLE = "asmr-webdav"
 
+# Popular works are available at /popular/. Query params can override
+# page/pageSize, for example /popular/?page=2&pageSize=20.
+ASMR_POPULAR_PAGE = "1"
+ASMR_POPULAR_PAGE_SIZE = "20"
+ASMR_POPULAR_KEYWORD = " "
+
 # Optional manual entries can still be added. Relative paths require
 # REMOTE_BASE_URL; full URLs work without it.
 # VIRTUAL_FILES = '''

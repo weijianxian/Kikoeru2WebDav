@@ -40,6 +40,20 @@ const asmrTree = [
   },
 ];
 
+const popularWorks = {
+  works: [
+    {
+      id: "RJ01489611",
+      title: "眠りの部屋",
+      circle: { name: "kiko circle" },
+    },
+    {
+      source_id: "RJ01557615",
+      name: "雨の日の耳かき",
+    },
+  ],
+};
+
 async function test(name, fn) {
   await fn();
   console.log(`ok - ${name}`);
@@ -109,6 +123,71 @@ await test("uses the first URL segment as the asmr track id", async () => {
     assert.equal(response.status, 207);
     assert.match(xml, /<D:href>\/01489611\/<\/D:href>/);
     assert.match(xml, /\/01489611\/01_%E6%9C%AC%E7%B7%A8\//);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("lists popular works as WebDAV directories", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, "https://api.asmr-200.com/api/recommender/popular");
+    assert.equal(init.method, "POST");
+    assert.equal(init.headers.get("content-type"), "application/json");
+    assert.deepEqual(JSON.parse(init.body), {
+      keyword: " ",
+      page: 2,
+      pageSize: 3,
+      subtitle: 0,
+      localSubtitledWorks: [],
+      withPlaylistStatus: [],
+    });
+
+    return Response.json(popularWorks);
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://dav.example/popular/?page=2&pageSize=3", {
+        method: "PROPFIND",
+        headers: { Depth: "1" },
+      }),
+      { ASMR_CACHE_TTL_SECONDS: "0" },
+    );
+    const xml = await response.text();
+
+    assert.equal(response.status, 207);
+    assert.match(xml, /<D:href>\/popular\/<\/D:href>/);
+    assert.match(xml, /<D:displayname>RJ01489611 眠りの部屋 \(kiko circle\)<\/D:displayname>/);
+    assert.match(xml, /<D:href>\/popular\/RJ01489611\/<\/D:href>/);
+    assert.match(xml, /<D:href>\/popular\/RJ01557615\/<\/D:href>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("opens a popular work directory through the track API", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "https://api.asmr-200.com/api/tracks/01489611?v=2");
+    return Response.json(asmrTree);
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://dav.example/popular/RJ01489611/", {
+        method: "PROPFIND",
+        headers: { Depth: "1" },
+      }),
+      { ASMR_CACHE_TTL_SECONDS: "0" },
+    );
+    const xml = await response.text();
+
+    assert.equal(response.status, 207);
+    assert.match(xml, /<D:href>\/popular\/RJ01489611\/<\/D:href>/);
+    assert.match(xml, /\/popular\/RJ01489611\/01_%E6%9C%AC%E7%B7%A8\//);
   } finally {
     globalThis.fetch = originalFetch;
   }

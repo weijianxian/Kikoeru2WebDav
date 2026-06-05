@@ -1,7 +1,9 @@
 const DEFAULT_ASMR_API_BASE_URL = "https://api.asmr-200.com/api/tracks";
+const DEFAULT_ASMR_POPULAR_API_URL = "https://api.asmr-200.com/api/recommender/popular";
 const DEFAULT_ASMR_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0";
 const DEFAULT_ASMR_URL_FIELDS = ["mediaDownloadUrl", "mediaStreamUrl", "streamLowQualityUrl"];
+const DEFAULT_ASMR_POPULAR_PATH = "popular";
 
 const READ_METHODS = "OPTIONS, GET, HEAD, PROPFIND";
 const MUTATING_METHODS = new Set([
@@ -140,7 +142,9 @@ async function propfindResponse(request, env) {
     return missingTrackIdResponse(request, env);
   }
 
-  const manifest = await buildManifest(context.env);
+  const manifest = context.popularIndex
+    ? await buildPopularManifest(context.env, context.searchParams)
+    : await buildManifest(context.env);
   const path = context.path;
   const depth = parseDepth(request.headers.get("depth"));
 
@@ -168,7 +172,9 @@ async function readResponse(request, env) {
     return missingTrackIdResponse(request, env);
   }
 
-  const manifest = await buildManifest(context.env);
+  const manifest = context.popularIndex
+    ? await buildPopularManifest(context.env, context.searchParams)
+    : await buildManifest(context.env);
   const path = context.path;
 
   if (manifest.dirs.has(path)) {
@@ -202,6 +208,11 @@ function routeContextFromRequest(request, env) {
 
   if (env.ASMR_ID_FROM_URL !== "false") {
     const segments = pathSegments(mountedPath);
+    const popularContext = popularContextFromSegments(segments, request, env);
+    if (popularContext) {
+      return popularContext;
+    }
+
     const trackId = segments[0];
 
     if (trackId && isAsmrTrackIdSegment(trackId)) {
@@ -235,6 +246,48 @@ function routeContextFromRequest(request, env) {
   return {
     path: mountedPath,
     env,
+  };
+}
+
+function popularContextFromSegments(segments, request, env) {
+  const popularPath = sanitizeDavSegment(env.ASMR_POPULAR_PATH || DEFAULT_ASMR_POPULAR_PATH);
+  if (!popularPath || segments[0] !== popularPath) {
+    return undefined;
+  }
+
+  const mount = normalizeMountPath(env.DAV_PREFIX || env.MOUNT_PATH || "/");
+  const searchParams = new URL(request.url).searchParams;
+
+  if (segments.length === 1) {
+    return {
+      path: "/",
+      env: {
+        ...env,
+        DAV_HREF_PREFIX: joinDavPath(mount, popularPath),
+        DAV_TITLE: env.ASMR_POPULAR_TITLE || "popular",
+      },
+      popularIndex: true,
+      searchParams,
+    };
+  }
+
+  const trackId = segments[1];
+  if (!isAsmrTrackIdSegment(trackId)) {
+    throw new HttpError(404, "Not found.");
+  }
+
+  const rest = segments.slice(2);
+  return {
+    path: rest.length ? `/${rest.join("/")}` : "/",
+    env: {
+      ...env,
+      ASMR_API_URL: undefined,
+      ASMR_TRACK_ID: trackId,
+      ASMR_TRACK_IDS: undefined,
+      ASMR_PREFIX: "",
+      DAV_HREF_PREFIX: joinDavPath(mount, popularPath, trackId),
+      DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
+    },
   };
 }
 
@@ -428,6 +481,151 @@ export async function buildManifest(env = {}) {
   }
 
   return { files, dirs };
+}
+
+async function buildPopularManifest(env = {}, searchParams = new URLSearchParams()) {
+  const works = await fetchAsmrPopularWorks(env, searchParams);
+  const dirs = new Map();
+  const files = new Map();
+  const seen = new Set();
+
+  dirs.set("/", { type: "dir", path: "/" });
+
+  for (let index = 0; index < works.length; index += 1) {
+    const work = works[index];
+    const trackId = trackIdFromPopularWork(work);
+    if (!trackId || seen.has(trackId)) {
+      continue;
+    }
+
+    seen.add(trackId);
+    dirs.set(`/${trackId}`, {
+      type: "dir",
+      path: `/${trackId}`,
+      displayName: displayNameFromPopularWork(work, trackId),
+      sortOrder: index,
+    });
+  }
+
+  return { files, dirs };
+}
+
+async function fetchAsmrPopularWorks(env, searchParams) {
+  const url = env.ASMR_POPULAR_API_URL || DEFAULT_ASMR_POPULAR_API_URL;
+  const body = popularRequestBody(env, searchParams);
+  const cacheKey = `popular:${url}:${JSON.stringify(body)}`;
+  const ttl = Number(env.ASMR_POPULAR_CACHE_TTL_SECONDS ?? env.ASMR_CACHE_TTL_SECONDS ?? 300);
+  const cached = apiCache.get(cacheKey);
+  const now = Date.now();
+
+  if (ttl > 0 && cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const headers = new Headers({
+    Accept: "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    "User-Agent": env.ASMR_USER_AGENT || DEFAULT_ASMR_USER_AGENT,
+  });
+
+  if (env.ASMR_AUTHORIZATION) {
+    headers.set("Authorization", env.ASMR_AUTHORIZATION);
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new HttpError(502, `Popular API returned HTTP ${response.status}.`);
+  }
+
+  const value = popularWorksFromResponse(await response.json());
+  if (ttl > 0) {
+    apiCache.set(cacheKey, { value, expiresAt: now + ttl * 1000 });
+  }
+
+  return value;
+}
+
+function popularRequestBody(env, searchParams) {
+  return {
+    keyword: configValue(searchParams, "keyword", env, "ASMR_POPULAR_KEYWORD", " "),
+    page: numberConfigValue(searchParams, "page", env, "ASMR_POPULAR_PAGE", 1),
+    pageSize: numberConfigValue(searchParams, "pageSize", env, "ASMR_POPULAR_PAGE_SIZE", 20),
+    subtitle: numberConfigValue(searchParams, "subtitle", env, "ASMR_POPULAR_SUBTITLE", 0),
+    localSubtitledWorks: arrayConfigValue(env.ASMR_POPULAR_LOCAL_SUBTITLED_WORKS),
+    withPlaylistStatus: arrayConfigValue(env.ASMR_POPULAR_WITH_PLAYLIST_STATUS),
+  };
+}
+
+function popularWorksFromResponse(value) {
+  const candidates = [
+    value?.works,
+    value?.data?.works,
+    value?.data?.items,
+    value?.data?.list,
+    value?.data?.records,
+    value?.data,
+    value?.items,
+    value?.results,
+    value?.list,
+    value?.records,
+    value,
+  ];
+  const works = candidates.find((candidate) => Array.isArray(candidate)) || [];
+
+  return works
+    .map((item) => {
+      if (item?.work && typeof item.work === "object") {
+        return { ...item, ...item.work };
+      }
+      return item;
+    })
+    .filter((item) => item && typeof item === "object");
+}
+
+function trackIdFromPopularWork(work) {
+  const candidates = [
+    work.id,
+    work.source_id,
+    work.sourceId,
+    work.work_id,
+    work.workId,
+    work.track_id,
+    work.trackId,
+    work.product_id,
+    work.productId,
+    work.rj_code,
+    work.rjCode,
+    work.code,
+    work.source_url,
+    work.sourceUrl,
+  ];
+
+  for (const candidate of candidates) {
+    const match = String(candidate ?? "").match(/(?:RJ)?\d{5,}/i);
+    if (match) {
+      return match[0];
+    }
+  }
+
+  return undefined;
+}
+
+function displayNameFromPopularWork(work, trackId) {
+  const title =
+    work.title || work.name || work.workTitle || work.work_title || work.displayName || work.display_name;
+  const circle =
+    work.circle?.name ||
+    work.circleName ||
+    work.circle_name ||
+    work.makerName ||
+    work.maker_name ||
+    work.author;
+  const parts = [trackId, title, circle && `(${circle})`].filter(Boolean);
+  return parts.join(" ");
 }
 
 async function fetchAsmrVirtualFiles(env) {
@@ -669,6 +867,42 @@ function parseList(value) {
     .filter(Boolean);
 }
 
+function configValue(searchParams, paramName, env, envName, fallback) {
+  const paramValue = searchParams?.get(paramName);
+  if (paramValue !== null && paramValue !== undefined) {
+    return paramValue;
+  }
+  const envValue = env[envName];
+  return envValue === undefined || envValue === null ? fallback : envValue;
+}
+
+function numberConfigValue(searchParams, paramName, env, envName, fallback) {
+  const value = Number(configValue(searchParams, paramName, env, envName, fallback));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function arrayConfigValue(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return [];
+  }
+
+  const text = String(value).trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to comma/newline format.
+  }
+
+  return parseList(text);
+}
+
 function fileEntryFromConfig(item, env) {
   if (typeof item === "string") {
     if (isHttpUrl(item)) {
@@ -749,6 +983,9 @@ function childrenForDirectory(path, manifest, depth) {
   }
 
   return nodes.sort((left, right) => {
+    if (Number.isFinite(left.sortOrder) && Number.isFinite(right.sortOrder) && left.sortOrder !== right.sortOrder) {
+      return left.sortOrder - right.sortOrder;
+    }
     if (left.type !== right.type) {
       return left.type === "dir" ? -1 : 1;
     }
@@ -904,6 +1141,9 @@ function parentPath(path) {
 }
 
 function displayName(node, env) {
+  if (node.displayName) {
+    return node.displayName;
+  }
   if (node.path === "/") {
     return env.DAV_TITLE || "remote-webdav";
   }
