@@ -1,0 +1,21 @@
+name = "raw-kiko-webdav"
+main = "src/worker.js"
+compatibility_date = "2026-06-05"
+
+[vars]
+# Pass the work id in the URL path, for example:
+# https://your-worker.example/01489611/
+ASMR_URL_FIELD = "mediaDownloadUrl"
+ASMR_CACHE_TTL_SECONDS = "300"
+DAV_TITLE = "asmr-webdav"
+
+# Optional manual entries can still be added. Relative paths require
+# REMOTE_BASE_URL; full URLs work without it.
+# VIRTUAL_FILES = '''
+# [
+#   {
+#     "path": "manual/07表白.mp3",
+#     "url": "https://raw.kiko-play-niptan.one/media/stream/daily/2026-05-30/RJ01557615/GKSD049/01%EF%BC%9A%E3%80%90mp3%E3%80%91%E6%AD%A3%E7%AF%87/07%E8%A1%A8%E7%99%BD.mp3"
+#   }
+# ]
+# '''
