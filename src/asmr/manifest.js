@@ -272,13 +272,15 @@ function manifestOptions(env, searchParams) {
 function smartManifest(manifest, extensions) {
   const targetDirectories = targetDirectoriesForExtensions(manifest.files, extensions);
   if (!targetDirectories.size) {
-    return manifestFromFiles(new Map());
+    return manifest;
   }
 
   const files = new Map();
   for (const file of manifest.files.values()) {
-    if (isInsideAnyDirectory(file.path, targetDirectories)) {
-      files.set(file.path, file);
+    const directory = containingDirectory(file.path, targetDirectories);
+    if (directory) {
+      const path = pathWithoutDirectory(file.path, directory);
+      files.set(path, { ...file, path });
     }
   }
 
@@ -308,14 +310,15 @@ function hasTargetExtension(path, extensionSet) {
   return extensionSet.has(fileName.slice(dotIndex + 1).toLowerCase());
 }
 
-function isInsideAnyDirectory(path, directories) {
+function containingDirectory(path, directories) {
+  let matched;
   for (const directory of directories) {
-    if (isInsideDirectory(path, directory)) {
-      return true;
+    if (isInsideDirectory(path, directory) && (!matched || directory.length > matched.length)) {
+      matched = directory;
     }
   }
 
-  return false;
+  return matched;
 }
 
 function isInsideDirectory(path, directory) {
@@ -324,6 +327,14 @@ function isInsideDirectory(path, directory) {
   }
 
   return path.startsWith(`${directory}/`);
+}
+
+function pathWithoutDirectory(path, directory) {
+  if (directory === "/") {
+    return path;
+  }
+
+  return normalizeDavPath(path.slice(directory.length) || "/");
 }
 
 function extensionOption(searchParams, env) {

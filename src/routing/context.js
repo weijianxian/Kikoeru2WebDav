@@ -4,6 +4,7 @@ import { isAsmrTrackIdSegment } from "../asmr/ids.js";
 import { HttpError } from "../shared/errors.js";
 import {
   davPathFromRequest,
+  inheritedHrefQuery,
   joinDavPath,
   normalizeMountPath,
   pathSegments,
@@ -13,6 +14,7 @@ import {
 export function routeContextFromRequest(request, env) {
   const mountedPath = davPathFromRequest(request, env);
   const searchParams = new URL(request.url).searchParams;
+  const hrefQuery = inheritedHrefQuery(searchParams);
 
   if (env.ASMR_ID_FROM_URL !== "false") {
     const segments = pathSegments(mountedPath);
@@ -24,6 +26,7 @@ export function routeContextFromRequest(request, env) {
         env: {
           ...env,
           DAV_HREF_PREFIX: mount,
+          DAV_HREF_QUERY: hrefQuery,
           DAV_TITLE: env.DAV_TITLE || "asmr-webdav",
         },
         rootIndex: true,
@@ -31,12 +34,12 @@ export function routeContextFromRequest(request, env) {
       };
     }
 
-    const recommendContext = recommendContextFromSegments(segments, env, searchParams);
+    const recommendContext = recommendContextFromSegments(segments, env, searchParams, hrefQuery);
     if (recommendContext) {
       return recommendContext;
     }
 
-    const popularContext = popularContextFromSegments(segments, env, searchParams);
+    const popularContext = popularContextFromSegments(segments, env, searchParams, hrefQuery);
     if (popularContext) {
       return popularContext;
     }
@@ -57,6 +60,7 @@ export function routeContextFromRequest(request, env) {
           ASMR_TRACK_IDS: undefined,
           ASMR_PREFIX: "",
           DAV_HREF_PREFIX: hrefPrefix,
+          DAV_HREF_QUERY: hrefQuery,
           DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
         },
         searchParams,
@@ -66,7 +70,10 @@ export function routeContextFromRequest(request, env) {
     if (!hasStaticSourceConfig(env)) {
       return {
         path: "/",
-        env,
+        env: {
+          ...env,
+          DAV_HREF_QUERY: hrefQuery,
+        },
         needsTrackId: true,
         searchParams,
       };
@@ -75,12 +82,15 @@ export function routeContextFromRequest(request, env) {
 
   return {
     path: mountedPath,
-    env,
+    env: {
+      ...env,
+      DAV_HREF_QUERY: hrefQuery,
+    },
     searchParams,
   };
 }
 
-function recommendContextFromSegments(segments, env, searchParams) {
+function recommendContextFromSegments(segments, env, searchParams, hrefQuery) {
   const recommendPath = sanitizeDavSegment(env.ASMR_RECOMMEND_PATH || DEFAULT_ASMR_RECOMMEND_PATH);
   if (!recommendPath || segments[0] !== recommendPath) {
     return undefined;
@@ -94,6 +104,7 @@ function recommendContextFromSegments(segments, env, searchParams) {
       env: {
         ...env,
         DAV_HREF_PREFIX: joinDavPath(mount, recommendPath),
+        DAV_HREF_QUERY: hrefQuery,
         DAV_TITLE: env.ASMR_RECOMMEND_TITLE || "recommend",
       },
       recommendIndex: true,
@@ -117,6 +128,7 @@ function recommendContextFromSegments(segments, env, searchParams) {
       ASMR_TRACK_IDS: undefined,
       ASMR_PREFIX: "",
       DAV_HREF_PREFIX: joinDavPath(mount, recommendPath, trackId),
+      DAV_HREF_QUERY: hrefQuery,
       DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
     },
     requiresAsmrAuth: true,
@@ -124,7 +136,7 @@ function recommendContextFromSegments(segments, env, searchParams) {
   };
 }
 
-function popularContextFromSegments(segments, env, searchParams) {
+function popularContextFromSegments(segments, env, searchParams, hrefQuery) {
   const popularPath = sanitizeDavSegment(env.ASMR_POPULAR_PATH || DEFAULT_ASMR_POPULAR_PATH);
   if (!popularPath || segments[0] !== popularPath) {
     return undefined;
@@ -138,6 +150,7 @@ function popularContextFromSegments(segments, env, searchParams) {
       env: {
         ...env,
         DAV_HREF_PREFIX: joinDavPath(mount, popularPath),
+        DAV_HREF_QUERY: hrefQuery,
         DAV_TITLE: env.ASMR_POPULAR_TITLE || "popular",
       },
       popularIndex: true,
@@ -160,6 +173,7 @@ function popularContextFromSegments(segments, env, searchParams) {
       ASMR_TRACK_IDS: undefined,
       ASMR_PREFIX: "",
       DAV_HREF_PREFIX: joinDavPath(mount, popularPath, trackId),
+      DAV_HREF_QUERY: hrefQuery,
       DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
     },
     searchParams,

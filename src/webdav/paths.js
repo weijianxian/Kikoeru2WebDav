@@ -40,13 +40,27 @@ export function davPathFromRequest(request, env) {
 export function hrefForPath(path, isDirectory, env) {
   const mount = normalizeMountPath(env.DAV_HREF_PREFIX || env.DAV_PREFIX || env.MOUNT_PATH || "/");
   const encodedPath = encodeDavPath(path);
-  const href = mount === "/" ? encodedPath : `${encodeDavPath(mount).replace(/\/$/, "")}${encodedPath}`;
+  let href = mount === "/" ? encodedPath : `${encodeDavPath(mount).replace(/\/$/, "")}${encodedPath}`;
 
   if (isDirectory && href !== "/" && !href.endsWith("/")) {
-    return `${href}/`;
+    href = `${href}/`;
   }
 
-  return href;
+  const query = normalizeHrefQuery(env.DAV_HREF_QUERY);
+  return query ? `${href}?${query}` : href;
+}
+
+export function inheritedHrefQuery(searchParams) {
+  const inheritedNames = ["smart", "ext", "format", "formats", "prefixId", "rjPrefix", "prefix"];
+  const inherited = new URLSearchParams();
+
+  for (const name of inheritedNames) {
+    for (const value of searchParams?.getAll?.(name) || []) {
+      inherited.append(name, value);
+    }
+  }
+
+  return inherited.toString();
 }
 
 export function encodeDavPath(path) {
@@ -115,4 +129,13 @@ export function parentPath(path) {
 
   const index = normalized.lastIndexOf("/");
   return index <= 0 ? "/" : normalized.slice(0, index);
+}
+
+function normalizeHrefQuery(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  const text = value instanceof URLSearchParams ? value.toString() : String(value).trim();
+  return text.replace(/^\?+/, "");
 }
