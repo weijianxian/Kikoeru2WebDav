@@ -36,6 +36,61 @@ const asmrTree = [
   },
 ];
 
+const smartTree = [
+  {
+    type: "folder",
+    title: "Audio",
+    children: [
+      {
+        type: "audio",
+        title: "track.mp3",
+        mediaDownloadUrl: "https://raw.example/download/track.mp3",
+        size: 1234,
+      },
+      {
+        type: "text",
+        title: "notes.txt",
+        mediaDownloadUrl: "https://raw.example/download/notes.txt",
+        size: 56,
+      },
+      {
+        type: "folder",
+        title: "Booklet",
+        children: [
+          {
+            type: "image",
+            title: "cover.png",
+            mediaDownloadUrl: "https://raw.example/download/cover.png",
+            size: 78,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    type: "folder",
+    title: "Artwork",
+    children: [
+      {
+        type: "image",
+        title: "logo.png",
+        mediaDownloadUrl: "https://raw.example/download/logo.png",
+      },
+    ],
+  },
+  {
+    type: "folder",
+    title: "WavOnly",
+    children: [
+      {
+        type: "audio",
+        title: "track.wav",
+        mediaDownloadUrl: "https://raw.example/download/track.wav",
+      },
+    ],
+  },
+];
+
 const popularWorks = {
   works: [
     {
@@ -95,6 +150,8 @@ await test("builds a manifest from the asmr track API tree", async () => {
     const manifest = await buildManifest({
       ASMR_TRACK_ID: "RJ01489611",
       ASMR_CACHE_TTL_SECONDS: "0",
+      ASMR_SMART: "0",
+      ASMR_PREFIX_FILE_ID: "false",
     });
 
     assert.equal(manifest.dirs.has("/01_本編"), true);
@@ -104,6 +161,70 @@ await test("builds a manifest from the asmr track API tree", async () => {
       "https://raw.example/download/TR01.wav",
     );
     assert.equal(manifest.files.get("/01_本編/TR01.wav").size, 76799540);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("smart manifest defaults to mp3 folders and keeps the whole matching folder", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "https://api.asmr-200.com/api/tracks/01489611?v=2");
+    return Response.json(smartTree);
+  };
+
+  try {
+    const manifest = await buildManifest({
+      ASMR_TRACK_ID: "01489611",
+      ASMR_CACHE_TTL_SECONDS: "0",
+    });
+
+    assert.equal(manifest.dirs.has("/Audio"), true);
+    assert.equal(manifest.dirs.has("/Audio/Booklet"), true);
+    assert.equal(manifest.dirs.has("/Artwork"), false);
+    assert.equal(manifest.dirs.has("/WavOnly"), false);
+    assert.equal(manifest.files.has("/Audio/RJ01489611 track.mp3"), true);
+    assert.equal(manifest.files.has("/Audio/RJ01489611 notes.txt"), true);
+    assert.equal(manifest.files.has("/Audio/Booklet/RJ01489611 cover.png"), true);
+    assert.equal(manifest.files.has("/WavOnly/RJ01489611 track.wav"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("smart manifest supports ext and prefixId params", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "https://api.asmr-200.com/api/tracks/01489611?v=2");
+    return Response.json(smartTree);
+  };
+
+  try {
+    const wavManifest = await buildManifest(
+      {
+        ASMR_TRACK_ID: "RJ01489611",
+        ASMR_CACHE_TTL_SECONDS: "0",
+      },
+      new URLSearchParams("ext=wav&prefixId=0"),
+    );
+
+    assert.equal(wavManifest.dirs.has("/Audio"), false);
+    assert.equal(wavManifest.dirs.has("/WavOnly"), true);
+    assert.equal(wavManifest.files.has("/WavOnly/track.wav"), true);
+
+    const fullManifest = await buildManifest(
+      {
+        ASMR_TRACK_ID: "RJ01489611",
+        ASMR_CACHE_TTL_SECONDS: "0",
+      },
+      new URLSearchParams("smart=0&prefixId=0"),
+    );
+
+    assert.equal(fullManifest.dirs.has("/Artwork"), true);
+    assert.equal(fullManifest.files.has("/Audio/track.mp3"), true);
+    assert.equal(fullManifest.files.has("/WavOnly/track.wav"), true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -119,7 +240,7 @@ await test("uses the first URL segment as the asmr track id", async () => {
 
   try {
     const response = await handleRequest(
-      new Request("https://dav.example/01489611/", {
+      new Request("https://dav.example/01489611/?ext=wav&prefixId=0", {
         method: "PROPFIND",
         headers: { Depth: "1" },
       }),
@@ -130,6 +251,34 @@ await test("uses the first URL segment as the asmr track id", async () => {
     assert.equal(response.status, 207);
     assert.match(xml, /<D:href>\/01489611\/<\/D:href>/);
     assert.match(xml, /\/01489611\/01_%E6%9C%AC%E7%B7%A8\//);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("URL-id works use smart mp3 folders by default", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "https://api.asmr-200.com/api/tracks/01489611?v=2");
+    return Response.json(smartTree);
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://dav.example/RJ01489611/", {
+        method: "PROPFIND",
+        headers: { Depth: "infinity" },
+      }),
+      { ASMR_CACHE_TTL_SECONDS: "0" },
+    );
+    const xml = await response.text();
+
+    assert.equal(response.status, 207);
+    assert.match(xml, /\/RJ01489611\/Audio\//);
+    assert.match(xml, /RJ01489611%20notes\.txt/);
+    assert.equal(xml.includes("/RJ01489611/Artwork/"), false);
+    assert.equal(xml.includes("/RJ01489611/WavOnly/"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -196,7 +345,7 @@ await test("opens a popular work directory through the track API", async () => {
 
   try {
     const response = await handleRequest(
-      new Request("https://dav.example/popular/RJ01489611/", {
+      new Request("https://dav.example/popular/RJ01489611/?ext=wav&prefixId=0", {
         method: "PROPFIND",
         headers: {
           Authorization: basicAuth("listener", "secret"),
@@ -284,31 +433,13 @@ await test("lists recommended works through authenticated asmr recommendations",
   }
 });
 
-await test("logs into asmr without a KV binding for uncached recommendations", async () => {
+await test("rejects token-required recommendations without a KV binding", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
 
-  globalThis.fetch = async (url, init = {}) => {
+  globalThis.fetch = async (url) => {
     calls.push(String(url));
-
-    if (url === "https://api.asmr-200.com/api/auth/me") {
-      assert.equal(init.method, "POST");
-      assert.deepEqual(JSON.parse(init.body), {
-        name: "listener",
-        password: "secret",
-      });
-
-      return Response.json({
-        user: { loggedIn: true, name: "listener", recommenderUuid },
-        token: "uncached-token",
-      });
-    }
-
-    assert.equal(url, "https://api.asmr-200.com/api/recommender/recommend-for-user");
-    assert.equal(init.headers.get("authorization"), "Bearer uncached-token");
-    assert.equal(JSON.parse(init.body).recommenderUuid, recommenderUuid);
-
-    return Response.json(popularWorks);
+    throw new Error(`Unexpected fetch: ${url}`);
   };
 
   try {
@@ -325,11 +456,9 @@ await test("logs into asmr without a KV binding for uncached recommendations", a
       },
     );
 
-    assert.equal(response.status, 207);
-    assert.deepEqual(calls, [
-      "https://api.asmr-200.com/api/auth/me",
-      "https://api.asmr-200.com/api/recommender/recommend-for-user",
-    ]);
+    assert.equal(response.status, 500);
+    assert.deepEqual(calls, []);
+    assert.match(await response.text(), /ASMR_AUTH_KV binding required/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -403,7 +532,7 @@ await test("allows guest Basic Auth to browse public track APIs without logging 
 
   try {
     const response = await handleRequest(
-      new Request("https://dav.example/01489611/", {
+      new Request("https://dav.example/01489611/?ext=wav&prefixId=0", {
         method: "PROPFIND",
         headers: {
           Authorization: basicAuth("guest", "whatever"),
@@ -572,7 +701,7 @@ await test("proxies dynamic URL-id files to the API-provided remote URL", async 
 
   try {
     const response = await handleRequest(
-      new Request("https://dav.example/RJ01489611/01_%E6%9C%AC%E7%B7%A8/TR01.wav", {
+      new Request("https://dav.example/RJ01489611/01_%E6%9C%AC%E7%B7%A8/TR01.wav?ext=wav&prefixId=0", {
         headers: { Range: "bytes=0-3" },
       }),
       { ASMR_CACHE_TTL_SECONDS: "0" },

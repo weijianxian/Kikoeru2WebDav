@@ -12,6 +12,7 @@ import {
 
 export function routeContextFromRequest(request, env) {
   const mountedPath = davPathFromRequest(request, env);
+  const searchParams = new URL(request.url).searchParams;
 
   if (env.ASMR_ID_FROM_URL !== "false") {
     const segments = pathSegments(mountedPath);
@@ -26,15 +27,16 @@ export function routeContextFromRequest(request, env) {
           DAV_TITLE: env.DAV_TITLE || "asmr-webdav",
         },
         rootIndex: true,
+        searchParams,
       };
     }
 
-    const recommendContext = recommendContextFromSegments(segments, request, env);
+    const recommendContext = recommendContextFromSegments(segments, env, searchParams);
     if (recommendContext) {
       return recommendContext;
     }
 
-    const popularContext = popularContextFromSegments(segments, request, env);
+    const popularContext = popularContextFromSegments(segments, env, searchParams);
     if (popularContext) {
       return popularContext;
     }
@@ -57,6 +59,7 @@ export function routeContextFromRequest(request, env) {
           DAV_HREF_PREFIX: hrefPrefix,
           DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
         },
+        searchParams,
       };
     }
 
@@ -65,6 +68,7 @@ export function routeContextFromRequest(request, env) {
         path: "/",
         env,
         needsTrackId: true,
+        searchParams,
       };
     }
   }
@@ -72,17 +76,17 @@ export function routeContextFromRequest(request, env) {
   return {
     path: mountedPath,
     env,
+    searchParams,
   };
 }
 
-function recommendContextFromSegments(segments, request, env) {
+function recommendContextFromSegments(segments, env, searchParams) {
   const recommendPath = sanitizeDavSegment(env.ASMR_RECOMMEND_PATH || DEFAULT_ASMR_RECOMMEND_PATH);
   if (!recommendPath || segments[0] !== recommendPath) {
     return undefined;
   }
 
   const mount = normalizeMountPath(env.DAV_PREFIX || env.MOUNT_PATH || "/");
-  const searchParams = new URL(request.url).searchParams;
 
   if (segments.length === 1) {
     return {
@@ -116,17 +120,17 @@ function recommendContextFromSegments(segments, request, env) {
       DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
     },
     requiresAsmrAuth: true,
+    searchParams,
   };
 }
 
-function popularContextFromSegments(segments, request, env) {
+function popularContextFromSegments(segments, env, searchParams) {
   const popularPath = sanitizeDavSegment(env.ASMR_POPULAR_PATH || DEFAULT_ASMR_POPULAR_PATH);
   if (!popularPath || segments[0] !== popularPath) {
     return undefined;
   }
 
   const mount = normalizeMountPath(env.DAV_PREFIX || env.MOUNT_PATH || "/");
-  const searchParams = new URL(request.url).searchParams;
 
   if (segments.length === 1) {
     return {
@@ -158,5 +162,6 @@ function popularContextFromSegments(segments, request, env) {
       DAV_HREF_PREFIX: joinDavPath(mount, popularPath, trackId),
       DAV_TITLE: env.DAV_TITLE || `asmr-${trackId}`,
     },
+    searchParams,
   };
 }

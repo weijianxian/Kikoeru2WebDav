@@ -17,20 +17,17 @@ export async function envWithAsmrAuthorization(env, credentials) {
   }
 
   const store = asmrTokenStore(env);
-  const token = store
-    ? await tokenForCredentials(env, store, credentials)
-    : await uncachedTokenForCredentials(env, credentials);
+  if (!store) {
+    throw new HttpError(500, "ASMR_AUTH_KV binding required for token authentication.");
+  }
+
+  const token = await tokenForCredentials(env, store, credentials);
 
   return {
     ...env,
     ASMR_AUTHORIZATION: `Bearer ${token.token}`,
     ASMR_RECOMMENDER_UUID: token.recommenderUuid || env.ASMR_RECOMMENDER_UUID,
   };
-}
-
-async function uncachedTokenForCredentials(env, credentials) {
-  const login = await loginAsmr(credentials, env);
-  return tokenRecord(login.token, Date.now(), login.user);
 }
 
 async function tokenForCredentials(env, store, credentials) {

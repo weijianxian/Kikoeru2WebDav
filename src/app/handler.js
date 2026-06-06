@@ -133,11 +133,20 @@ async function envForContext(context, credentials) {
     throw new HttpError(401, "ASMR authentication required.");
   }
 
+  if (!hasAsmrAuthKv(context.env)) {
+    throw new HttpError(500, "ASMR_AUTH_KV binding required for token authentication.");
+  }
+
   return await envWithAsmrAuthorization(context.env, credentials);
 }
 
 function shouldUseAsmrAuthorization(context) {
   return context.requiresAsmrAuth === true;
+}
+
+function hasAsmrAuthKv(env) {
+  const store = env.ASMR_AUTH_KV;
+  return Boolean(store && typeof store.get === "function" && typeof store.put === "function");
 }
 
 async function manifestForContext(context, env, credentials) {
@@ -155,7 +164,7 @@ async function manifestForContext(context, env, credentials) {
     return await buildPopularManifest(env, context.searchParams);
   }
 
-  return await buildManifest(env);
+  return await buildManifest(env, context.searchParams);
 }
 
 function canSeeRecommend(credentials) {

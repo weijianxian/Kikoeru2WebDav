@@ -14,18 +14,25 @@ import {
 import {
   DEFAULT_ASMR_POPULAR_PATH,
   DEFAULT_ASMR_RECOMMEND_PATH,
+  DEFAULT_ASMR_SMART_EXT,
   DEFAULT_ASMR_URL_FIELDS,
 } from "./constants.js";
 
-export async function buildManifest(env = {}) {
+export async function buildManifest(env = {}, searchParams = new URLSearchParams()) {
   const files = new Map();
-  const configuredFiles = await fetchAsmrVirtualFiles(env);
+  const options = manifestOptions(env, searchParams);
+  const configuredFiles = await fetchAsmrVirtualFiles(env, options);
 
   for (const item of configuredFiles) {
     const entry = fileEntry(item);
     files.set(entry.path, entry);
   }
 
+  const manifest = manifestFromFiles(files);
+  return options.smart ? smartManifest(manifest, options.extensions) : manifest;
+}
+
+function manifestFromFiles(files) {
   const dirs = new Map();
   dirs.set("/", { type: "dir", path: "/" });
 
@@ -134,7 +141,7 @@ export function hasStaticSourceConfig(env) {
   return hasAsmrConfig(env);
 }
 
-async function fetchAsmrVirtualFiles(env) {
+async function fetchAsmrVirtualFiles(env, options) {
   const configs = asmrTrackConfigs(env);
   if (!configs.length) {
     return [];
@@ -144,7 +151,11 @@ async function fetchAsmrVirtualFiles(env) {
 
   for (const config of configs) {
     const tree = await fetchAsmrTrackTree(config.url, env);
-    entries.push(...flattenAsmrNodes(tree, config.prefix, env));
+    entries.push(
+      ...flattenAsmrNodes(tree, config.prefix, env, {
+        prefixFileId: options.prefixFileId ? config.trackId : undefined,
+      }),
+    );
   }
 
   return entries;
@@ -156,6 +167,7 @@ function asmrTrackConfigs(env) {
       {
         url: String(env.ASMR_API_URL),
         prefix: env.ASMR_PREFIX || "",
+        trackId: normalizedRjId(env.ASMR_TRACK_ID) || normalizedRjId(env.ASMR_API_URL),
       },
     ];
   }
@@ -165,6 +177,7 @@ function asmrTrackConfigs(env) {
     return ids.map((id) => ({
       url: asmrApiUrlForTrack(id, env),
       prefix: env.ASMR_PREFIX ? joinDavPath(env.ASMR_PREFIX, id) : `/${sanitizeDavSegment(id)}`,
+      trackId: normalizedRjId(id),
     }));
   }
 
@@ -173,6 +186,7 @@ function asmrTrackConfigs(env) {
       {
         url: asmrApiUrlForTrack(env.ASMR_TRACK_ID, env),
         prefix: env.ASMR_PREFIX || "",
+        trackId: normalizedRjId(env.ASMR_TRACK_ID),
       },
     ];
   }
@@ -180,20 +194,20 @@ function asmrTrackConfigs(env) {
   return [];
 }
 
-function flattenAsmrNodes(value, prefix, env) {
+function flattenAsmrNodes(value, prefix, env, options = {}) {
   const roots = Array.isArray(value)
     ? value
     : value?.children || value?.tracks || value?.data || value?.files || [];
   const entries = [];
 
   for (const node of roots) {
-    walkAsmrNode(node, [], prefix, env, entries);
+    walkAsmrNode(node, [], prefix, env, entries, options);
   }
 
   return entries;
 }
 
-function walkAsmrNode(node, ancestors, prefix, env, entries) {
+function walkAsmrNode(node, ancestors, prefix, env, entries, options) {
   if (!node || typeof node !== "object") {
     return;
   }
@@ -205,7 +219,7 @@ function walkAsmrNode(node, ancestors, prefix, env, entries) {
   if (children.length || type === "folder" || type === "directory") {
     const nextAncestors = title ? [...ancestors, title] : ancestors;
     for (const child of children) {
-      walkAsmrNode(child, nextAncestors, prefix, env, entries);
+      walkAsmrNode(child, nextAncestors, prefix, env, entries, options);
     }
     return;
   }
@@ -215,7 +229,8 @@ function walkAsmrNode(node, ancestors, prefix, env, entries) {
     return;
   }
 
-  const fileName = title || sanitizeDavSegment(new URL(remoteUrl).pathname.split("/").pop() || "file");
+  const originalFileName = title || sanitizeDavSegment(new URL(remoteUrl).pathname.split("/").pop() || "file");
+  const fileName = fileNameWithTrackId(originalFileName, options.prefixFileId);
   entries.push({
     path: joinDavPath(prefix, ...ancestors, fileName),
     url: remoteUrl,
@@ -240,8 +255,165 @@ function pickAsmrUrl(node, env) {
   return undefined;
 }
 
+function manifestOptions(env, searchParams) {
+  return {
+    smart: booleanOption(searchParams, ["smart"], env, ["ASMR_SMART", "ASMR_SMART_PATH"], true),
+    extensions: extensionOption(searchParams, env),
+    prefixFileId: booleanOption(
+      searchParams,
+      ["prefixId", "rjPrefix", "prefix"],
+      env,
+      ["ASMR_PREFIX_FILE_ID", "ASMR_RJ_PREFIX"],
+      true,
+    ),
+  };
+}
+
+function smartManifest(manifest, extensions) {
+  const targetDirectories = targetDirectoriesForExtensions(manifest.files, extensions);
+  if (!targetDirectories.size) {
+    return manifestFromFiles(new Map());
+  }
+
+  const files = new Map();
+  for (const file of manifest.files.values()) {
+    if (isInsideAnyDirectory(file.path, targetDirectories)) {
+      files.set(file.path, file);
+    }
+  }
+
+  return manifestFromFiles(files);
+}
+
+function targetDirectoriesForExtensions(files, extensions) {
+  const extensionSet = new Set(extensions);
+  const dirs = new Set();
+
+  for (const file of files.values()) {
+    if (hasTargetExtension(file.path, extensionSet)) {
+      dirs.add(parentPath(file.path) || "/");
+    }
+  }
+
+  return dirs;
+}
+
+function hasTargetExtension(path, extensionSet) {
+  const fileName = path.split("/").filter(Boolean).pop() || "";
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex < 0 || dotIndex === fileName.length - 1) {
+    return false;
+  }
+
+  return extensionSet.has(fileName.slice(dotIndex + 1).toLowerCase());
+}
+
+function isInsideAnyDirectory(path, directories) {
+  for (const directory of directories) {
+    if (isInsideDirectory(path, directory)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isInsideDirectory(path, directory) {
+  if (directory === "/") {
+    return path !== "/" && path.startsWith("/");
+  }
+
+  return path.startsWith(`${directory}/`);
+}
+
+function extensionOption(searchParams, env) {
+  const value =
+    searchParamValue(searchParams, ["ext", "format", "formats"]) ??
+    envOption(env, ["ASMR_SMART_EXT", "ASMR_AUDIO_EXT", "ASMR_AUDIO_EXTS"]) ??
+    DEFAULT_ASMR_SMART_EXT;
+  const extensions = parseList(value)
+    .map((item) => normalizeExtension(item))
+    .filter(Boolean);
+
+  return extensions.length ? extensions : [DEFAULT_ASMR_SMART_EXT];
+}
+
+function normalizeExtension(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\*\./, "")
+    .replace(/^\./, "");
+}
+
+function booleanOption(searchParams, paramNames, env, envNames, fallback) {
+  const paramValue = searchParamValue(searchParams, paramNames);
+  if (paramValue !== undefined) {
+    return parseBoolean(paramValue, fallback);
+  }
+
+  return parseBoolean(envOption(env, envNames), fallback);
+}
+
+function parseBoolean(value, fallback) {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const text = String(value).trim().toLowerCase();
+  if (!text) {
+    return fallback;
+  }
+  if (["1", "true", "yes", "y", "on"].includes(text)) {
+    return true;
+  }
+  if (["0", "false", "no", "n", "off"].includes(text)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function searchParamValue(searchParams, names) {
+  for (const name of names) {
+    if (searchParams?.has?.(name)) {
+      return searchParams.get(name);
+    }
+  }
+
+  return undefined;
+}
+
+function envOption(env, names) {
+  for (const name of names) {
+    if (env[name] !== undefined && env[name] !== null) {
+      return env[name];
+    }
+  }
+
+  return undefined;
+}
+
+function fileNameWithTrackId(fileName, trackId) {
+  const normalizedId = normalizedRjId(trackId);
+  if (!normalizedId) {
+    return fileName;
+  }
+
+  if (fileName.toLowerCase().startsWith(normalizedId.toLowerCase())) {
+    return fileName;
+  }
+
+  return sanitizeDavSegment(`${normalizedId} ${fileName}`, fileName);
+}
+
 function hasAsmrConfig(env) {
   return Boolean(env.ASMR_API_URL || env.ASMR_TRACK_ID || env.ASMR_TRACK_IDS);
+}
+
+function normalizedRjId(value) {
+  const match = String(value ?? "").match(/(?:RJ)?(\d{5,})/i);
+  return match ? `RJ${match[1]}` : undefined;
 }
 
 function trackIdFromPopularWork(work) {
