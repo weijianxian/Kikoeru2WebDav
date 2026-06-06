@@ -263,6 +263,31 @@ await test("smart manifest falls back to the original root when ext does not mat
   }
 });
 
+await test("smart manifest can disable fallback when ext does not match", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "https://api.asmr-200.com/api/tracks/01489611?v=2");
+    return Response.json(smartTree);
+  };
+
+  try {
+    const manifest = await buildManifest(
+      {
+        ASMR_CACHE_TTL_SECONDS: "0",
+      },
+      new URLSearchParams("ext=flac&fallback=0&prefixId=0"),
+      { trackId: "RJ01489611" },
+    );
+
+    assert.equal(manifest.dirs.has("/"), true);
+    assert.equal(manifest.dirs.size, 1);
+    assert.equal(manifest.files.size, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await test("uses the first URL segment as the asmr track id", async () => {
   const originalFetch = globalThis.fetch;
 
@@ -386,7 +411,7 @@ await test("passes smart params from list directories to work links", async () =
 
   try {
     const response = await handleRequest(
-      new Request("https://dav.example/popular/?page=2&pageSize=3&ext=wav&prefixId=0", {
+      new Request("https://dav.example/popular/?page=2&pageSize=3&ext=wav&fallback=0&prefixId=0", {
         method: "PROPFIND",
         headers: {
           Authorization: basicAuth("listener", "secret"),
@@ -401,7 +426,10 @@ await test("passes smart params from list directories to work links", async () =
     const xml = await response.text();
 
     assert.equal(response.status, 207);
-    assert.match(xml, /<D:href>\/popular\/RJ01489611\/\?ext=wav&amp;prefixId=0<\/D:href>/);
+    assert.match(
+      xml,
+      /<D:href>\/popular\/RJ01489611\/\?ext=wav&amp;fallback=0&amp;prefixId=0<\/D:href>/,
+    );
     assert.equal(xml.includes("page=2"), false);
   } finally {
     globalThis.fetch = originalFetch;

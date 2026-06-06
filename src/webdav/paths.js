@@ -51,7 +51,16 @@ export function hrefForPath(path, isDirectory, env) {
 }
 
 export function inheritedHrefQuery(searchParams) {
-  const inheritedNames = ["smart", "ext", "format", "formats", "prefixId", "rjPrefix", "prefix"];
+  const inheritedNames = [
+    "smart",
+    "ext",
+    "format",
+    "formats",
+    "fallback",
+    "prefixId",
+    "rjPrefix",
+    "prefix",
+  ];
   const inherited = new URLSearchParams();
 
   for (const name of inheritedNames) {

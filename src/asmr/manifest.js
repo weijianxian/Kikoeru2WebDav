@@ -32,7 +32,7 @@ export async function buildManifest(env = {}, searchParams = new URLSearchParams
   }
 
   const manifest = manifestFromFiles(files);
-  return options.smart ? smartManifest(manifest, options.extensions) : manifest;
+  return options.smart ? smartManifest(manifest, options) : manifest;
 }
 
 function manifestFromFiles(files) {
@@ -214,6 +214,7 @@ function manifestOptions(env, searchParams) {
   return {
     smart: booleanOption(searchParams, ["smart"], env, ["ASMR_SMART", "ASMR_SMART_PATH"], true),
     extensions: extensionOption(searchParams, env),
+    fallback: booleanOption(searchParams, ["fallback"], env, [], true),
     prefixFileId: booleanOption(
       searchParams,
       ["prefixId", "rjPrefix", "prefix"],
@@ -224,10 +225,10 @@ function manifestOptions(env, searchParams) {
   };
 }
 
-function smartManifest(manifest, extensions) {
-  const targetDirectories = targetDirectoriesForExtensions(manifest.files, extensions);
+function smartManifest(manifest, options) {
+  const targetDirectories = targetDirectoriesForExtensions(manifest.files, options.extensions);
   if (!targetDirectories.size) {
-    return manifest;
+    return options.fallback ? manifest : manifestFromFiles(new Map());
   }
 
   const files = new Map();
