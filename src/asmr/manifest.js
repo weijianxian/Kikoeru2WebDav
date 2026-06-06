@@ -12,15 +12,18 @@ import {
   fetchAsmrTrackTree,
 } from "./api.js";
 import {
-  DEFAULT_ASMR_POPULAR_PATH,
-  DEFAULT_ASMR_RECOMMEND_PATH,
+  DEFAULT_ASMR_MEDIA_URL_FIELDS,
   DEFAULT_ASMR_SMART_EXT,
-  DEFAULT_ASMR_URL_FIELDS,
+  POPULAR_PATH,
+  RECOMMEND_PATH,
 } from "./constants.js";
 
-export async function buildManifest(env = {}, searchParams = new URLSearchParams()) {
+export async function buildManifest(env = {}, searchParams = new URLSearchParams(), buildOptions = {}) {
   const files = new Map();
-  const options = manifestOptions(env, searchParams);
+  const options = {
+    ...manifestOptions(env, searchParams),
+    trackId: buildOptions.trackId,
+  };
   const configuredFiles = await fetchAsmrVirtualFiles(env, options);
 
   for (const item of configuredFiles) {
@@ -69,8 +72,8 @@ export async function buildRecommendManifest(env = {}, searchParams = new URLSea
 export function buildRootManifest(env = {}, options = {}) {
   const dirs = new Map();
   const files = new Map();
-  const popularPath = sanitizeDavSegment(env.ASMR_POPULAR_PATH || DEFAULT_ASMR_POPULAR_PATH);
-  const recommendPath = sanitizeDavSegment(env.ASMR_RECOMMEND_PATH || DEFAULT_ASMR_RECOMMEND_PATH);
+  const popularPath = POPULAR_PATH;
+  const recommendPath = RECOMMEND_PATH;
 
   dirs.set("/", { type: "dir", path: "/" });
 
@@ -137,77 +140,32 @@ export function fileEntry({ path, url, contentType, size, lastModified, etag }) 
   };
 }
 
-export function hasStaticSourceConfig(env) {
-  return hasAsmrConfig(env);
-}
-
 async function fetchAsmrVirtualFiles(env, options) {
-  const configs = asmrTrackConfigs(env);
-  if (!configs.length) {
+  const trackId = options.trackId;
+  if (!trackId) {
     return [];
   }
 
-  const entries = [];
-
-  for (const config of configs) {
-    const tree = await fetchAsmrTrackTree(config.url, env);
-    entries.push(
-      ...flattenAsmrNodes(tree, config.prefix, env, {
-        prefixFileId: options.prefixFileId ? config.trackId : undefined,
-      }),
-    );
-  }
-
-  return entries;
+  const tree = await fetchAsmrTrackTree(asmrApiUrlForTrack(trackId, env), env);
+  return flattenAsmrNodes(tree, "", {
+    prefixFileId: options.prefixFileId ? normalizedRjId(trackId) : undefined,
+  });
 }
 
-function asmrTrackConfigs(env) {
-  if (env.ASMR_API_URL) {
-    return [
-      {
-        url: String(env.ASMR_API_URL),
-        prefix: env.ASMR_PREFIX || "",
-        trackId: normalizedRjId(env.ASMR_TRACK_ID) || normalizedRjId(env.ASMR_API_URL),
-      },
-    ];
-  }
-
-  const ids = parseList(env.ASMR_TRACK_IDS);
-  if (ids.length) {
-    return ids.map((id) => ({
-      url: asmrApiUrlForTrack(id, env),
-      prefix: env.ASMR_PREFIX ? joinDavPath(env.ASMR_PREFIX, id) : `/${sanitizeDavSegment(id)}`,
-      trackId: normalizedRjId(id),
-    }));
-  }
-
-  if (env.ASMR_TRACK_ID) {
-    return [
-      {
-        url: asmrApiUrlForTrack(env.ASMR_TRACK_ID, env),
-        prefix: env.ASMR_PREFIX || "",
-        trackId: normalizedRjId(env.ASMR_TRACK_ID),
-      },
-    ];
-  }
-
-  return [];
-}
-
-function flattenAsmrNodes(value, prefix, env, options = {}) {
+function flattenAsmrNodes(value, prefix, options = {}) {
   const roots = Array.isArray(value)
     ? value
     : value?.children || value?.tracks || value?.data || value?.files || [];
   const entries = [];
 
   for (const node of roots) {
-    walkAsmrNode(node, [], prefix, env, entries, options);
+    walkAsmrNode(node, [], prefix, entries, options);
   }
 
   return entries;
 }
 
-function walkAsmrNode(node, ancestors, prefix, env, entries, options) {
+function walkAsmrNode(node, ancestors, prefix, entries, options) {
   if (!node || typeof node !== "object") {
     return;
   }
@@ -219,12 +177,12 @@ function walkAsmrNode(node, ancestors, prefix, env, entries, options) {
   if (children.length || type === "folder" || type === "directory") {
     const nextAncestors = title ? [...ancestors, title] : ancestors;
     for (const child of children) {
-      walkAsmrNode(child, nextAncestors, prefix, env, entries, options);
+      walkAsmrNode(child, nextAncestors, prefix, entries, options);
     }
     return;
   }
 
-  const remoteUrl = pickAsmrUrl(node, env);
+  const remoteUrl = pickAsmrUrl(node);
   if (!remoteUrl) {
     return;
   }
@@ -241,11 +199,8 @@ function walkAsmrNode(node, ancestors, prefix, env, entries, options) {
   });
 }
 
-function pickAsmrUrl(node, env) {
-  const fields = parseList(env.ASMR_URL_FIELDS || env.ASMR_URL_FIELD);
-  const preferredFields = fields.length ? fields : DEFAULT_ASMR_URL_FIELDS;
-
-  for (const field of preferredFields) {
+function pickAsmrUrl(node) {
+  for (const field of DEFAULT_ASMR_MEDIA_URL_FIELDS) {
     const value = node[field];
     if (typeof value === "string" && isHttpUrl(value)) {
       return value;
@@ -416,10 +371,6 @@ function fileNameWithTrackId(fileName, trackId) {
   }
 
   return sanitizeDavSegment(`${normalizedId} ${fileName}`, fileName);
-}
-
-function hasAsmrConfig(env) {
-  return Boolean(env.ASMR_API_URL || env.ASMR_TRACK_ID || env.ASMR_TRACK_IDS);
 }
 
 function normalizedRjId(value) {

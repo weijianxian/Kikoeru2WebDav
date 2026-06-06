@@ -1,15 +1,10 @@
 import { HttpError } from "../shared/errors.js";
-import {
-  arrayConfigValue,
-  configValue,
-  ensureTrailingSlash,
-  numberConfigValue,
-} from "../shared/strings.js";
+import { ensureTrailingSlash } from "../shared/strings.js";
 import {
   DEFAULT_ASMR_API_BASE_URL,
-  DEFAULT_ASMR_POPULAR_API_URL,
-  DEFAULT_ASMR_RECOMMEND_API_URL,
   DEFAULT_ASMR_USER_AGENT,
+  POPULAR_API_ENDPOINT,
+  RECOMMEND_API_ENDPOINT,
 } from "./constants.js";
 
 const apiCache = new Map();
@@ -24,7 +19,7 @@ export function asmrApiUrlForTrack(trackId, env) {
 
 export async function fetchAsmrTrackTree(url, env) {
   const ttl = Number(env.ASMR_CACHE_TTL_SECONDS ?? 300);
-  const authorization = env.ASMR_AUTHORIZATION;
+  const authorization = authContext(env).authorization;
   const useCache = !authorization;
   const cached = useCache ? apiCache.get(url) : undefined;
   const now = Date.now();
@@ -56,11 +51,11 @@ export async function fetchAsmrTrackTree(url, env) {
 }
 
 export async function fetchAsmrPopularWorks(env, searchParams) {
-  const url = env.ASMR_POPULAR_API_URL || DEFAULT_ASMR_POPULAR_API_URL;
-  const body = popularRequestBody(env, searchParams);
+  const url = POPULAR_API_ENDPOINT;
+  const body = popularRequestBody(searchParams);
   const cacheKey = `popular:${url}:${JSON.stringify(body)}`;
-  const ttl = Number(env.ASMR_POPULAR_CACHE_TTL_SECONDS ?? env.ASMR_CACHE_TTL_SECONDS ?? 300);
-  const authorization = env.ASMR_AUTHORIZATION;
+  const ttl = Number(env.ASMR_CACHE_TTL_SECONDS ?? 300);
+  const authorization = authContext(env).authorization;
   const useCache = !authorization;
   const cached = useCache ? apiCache.get(cacheKey) : undefined;
   const now = Date.now();
@@ -97,9 +92,10 @@ export async function fetchAsmrPopularWorks(env, searchParams) {
 }
 
 export async function fetchAsmrRecommendedWorks(env, searchParams) {
-  const url = env.ASMR_RECOMMEND_API_URL || DEFAULT_ASMR_RECOMMEND_API_URL;
-  const body = recommendRequestBody(env, searchParams);
-  const authorization = env.ASMR_AUTHORIZATION;
+  const url = RECOMMEND_API_ENDPOINT;
+  const auth = authContext(env);
+  const body = recommendRequestBody(searchParams, auth.recommenderUuid);
+  const authorization = auth.authorization;
 
   if (!authorization) {
     throw new HttpError(401, "ASMR authentication required.");
@@ -128,27 +124,46 @@ export async function fetchAsmrRecommendedWorks(env, searchParams) {
   return worksFromResponse(await response.json());
 }
 
-function popularRequestBody(env, searchParams) {
+function popularRequestBody(searchParams) {
   return {
-    keyword: configValue(searchParams, "keyword", env, "ASMR_POPULAR_KEYWORD", " "),
-    page: numberConfigValue(searchParams, "page", env, "ASMR_POPULAR_PAGE", 1),
-    pageSize: numberConfigValue(searchParams, "pageSize", env, "ASMR_POPULAR_PAGE_SIZE", 20),
-    subtitle: numberConfigValue(searchParams, "subtitle", env, "ASMR_POPULAR_SUBTITLE", 0),
-    localSubtitledWorks: arrayConfigValue(env.ASMR_POPULAR_LOCAL_SUBTITLED_WORKS),
-    withPlaylistStatus: arrayConfigValue(env.ASMR_POPULAR_WITH_PLAYLIST_STATUS),
+    keyword: stringParam(searchParams, "keyword", " "),
+    page: numberParam(searchParams, "page", 1),
+    pageSize: numberParam(searchParams, "pageSize", 20),
+    subtitle: numberParam(searchParams, "subtitle", 0),
+    localSubtitledWorks: [],
+    withPlaylistStatus: [],
   };
 }
 
-function recommendRequestBody(env, searchParams) {
+function recommendRequestBody(searchParams, recommenderUuid) {
   return {
-    keyword: configValue(searchParams, "keyword", env, "ASMR_RECOMMEND_KEYWORD", " "),
-    recommenderUuid: env.ASMR_RECOMMENDER_UUID || "",
-    page: numberConfigValue(searchParams, "page", env, "ASMR_RECOMMEND_PAGE", 1),
-    pageSize: numberConfigValue(searchParams, "pageSize", env, "ASMR_RECOMMEND_PAGE_SIZE", 20),
-    subtitle: numberConfigValue(searchParams, "subtitle", env, "ASMR_RECOMMEND_SUBTITLE", 0),
-    localSubtitledWorks: arrayConfigValue(env.ASMR_RECOMMEND_LOCAL_SUBTITLED_WORKS),
-    withPlaylistStatus: arrayConfigValue(env.ASMR_RECOMMEND_WITH_PLAYLIST_STATUS),
+    keyword: stringParam(searchParams, "keyword", " "),
+    recommenderUuid: recommenderUuid || "",
+    page: numberParam(searchParams, "page", 1),
+    pageSize: numberParam(searchParams, "pageSize", 20),
+    subtitle: numberParam(searchParams, "subtitle", 0),
+    localSubtitledWorks: [],
+    withPlaylistStatus: [],
   };
+}
+
+function stringParam(searchParams, name, fallback) {
+  const value = searchParams?.get(name);
+  return value === null || value === undefined ? fallback : value;
+}
+
+function numberParam(searchParams, name, fallback) {
+  const raw = searchParams?.get(name);
+  if (raw === null || raw === undefined || raw === "") {
+    return fallback;
+  }
+
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function authContext(env) {
+  return env.asmrAuth || {};
 }
 
 function worksFromResponse(value) {

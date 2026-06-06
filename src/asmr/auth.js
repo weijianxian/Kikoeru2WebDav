@@ -1,13 +1,9 @@
 import { HttpError } from "../shared/errors.js";
-import { DEFAULT_ASMR_AUTH_URL, DEFAULT_ASMR_USER_AGENT } from "./constants.js";
+import { AUTH_ENDPOINT, DEFAULT_ASMR_USER_AGENT } from "./constants.js";
 
 const DEFAULT_VALIDATE_TTL_SECONDS = 300;
 
 export async function envWithAsmrAuthorization(env, credentials) {
-  if (env.ASMR_AUTHORIZATION || env.ASMR_AUTH_FROM_BASIC === "false") {
-    return env;
-  }
-
   if (credentials?.guest) {
     return env;
   }
@@ -25,8 +21,10 @@ export async function envWithAsmrAuthorization(env, credentials) {
 
   return {
     ...env,
-    ASMR_AUTHORIZATION: `Bearer ${token.token}`,
-    ASMR_RECOMMENDER_UUID: token.recommenderUuid || env.ASMR_RECOMMENDER_UUID,
+    asmrAuth: {
+      authorization: `Bearer ${token.token}`,
+      recommenderUuid: token.recommenderUuid,
+    },
   };
 }
 
@@ -36,12 +34,15 @@ async function tokenForCredentials(env, store, credentials) {
   const now = Date.now();
 
   if (cached?.token && !isExpired(cached.expiresAt, now)) {
-    const validateTtl = Number(env.ASMR_AUTH_VALIDATE_TTL_SECONDS ?? DEFAULT_VALIDATE_TTL_SECONDS);
-    if (cached.recommenderUuid && validateTtl > 0 && cached.checkedAt && now - cached.checkedAt < validateTtl * 1000) {
+    if (
+      cached.recommenderUuid &&
+      cached.checkedAt &&
+      now - cached.checkedAt < DEFAULT_VALIDATE_TTL_SECONDS * 1000
+    ) {
       return cached;
     }
 
-    const validation = await validateAsmrToken(cached.token, env);
+    const validation = await validateAsmrToken(cached.token);
     if (validation) {
       const refreshed = tokenRecord(cached.token, now, validation.user);
       await putTokenRecord(store, key, refreshed);
@@ -49,7 +50,7 @@ async function tokenForCredentials(env, store, credentials) {
     }
   }
 
-  const login = await loginAsmr(credentials, env);
+  const login = await loginAsmr(credentials);
   const record = tokenRecord(login.token, now, login.user);
   await putTokenRecord(store, key, record);
   return record;
@@ -85,8 +86,8 @@ async function putTokenRecord(store, key, record) {
   await store.put(key, JSON.stringify(record), options);
 }
 
-async function validateAsmrToken(token, env) {
-  const response = await fetch(env.ASMR_AUTH_URL || DEFAULT_ASMR_AUTH_URL, {
+async function validateAsmrToken(token) {
+  const response = await fetch(AUTH_ENDPOINT, {
     method: "GET",
     headers: authHeaders({
       Authorization: `Bearer ${token}`,
@@ -105,8 +106,8 @@ async function validateAsmrToken(token, env) {
   return undefined;
 }
 
-async function loginAsmr(credentials, env) {
-  const response = await fetch(env.ASMR_AUTH_URL || DEFAULT_ASMR_AUTH_URL, {
+async function loginAsmr(credentials) {
+  const response = await fetch(AUTH_ENDPOINT, {
     method: "POST",
     headers: authHeaders({
       Authorization: "null",

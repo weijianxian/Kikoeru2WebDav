@@ -27,43 +27,6 @@ export function parseList(value) {
     .filter(Boolean);
 }
 
-export function configValue(searchParams, paramName, env, envName, fallback) {
-  const paramValue = searchParams?.get(paramName);
-  if (paramValue !== null && paramValue !== undefined) {
-    return paramValue;
-  }
-
-  const envValue = env[envName];
-  return envValue === undefined || envValue === null ? fallback : envValue;
-}
-
-export function numberConfigValue(searchParams, paramName, env, envName, fallback) {
-  const value = Number(configValue(searchParams, paramName, env, envName, fallback));
-  return Number.isFinite(value) ? value : fallback;
-}
-
-export function arrayConfigValue(value) {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (value === undefined || value === null || String(value).trim() === "") {
-    return [];
-  }
-
-  const text = String(value).trim();
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch {
-    // Fall through to comma/newline format.
-  }
-
-  return parseList(text);
-}
-
 export function isHttpUrl(value) {
   try {
     const url = new URL(value);

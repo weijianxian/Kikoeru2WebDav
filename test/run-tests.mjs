@@ -147,12 +147,15 @@ await test("builds a manifest from the asmr track API tree", async () => {
   };
 
   try {
-    const manifest = await buildManifest({
-      ASMR_TRACK_ID: "RJ01489611",
-      ASMR_CACHE_TTL_SECONDS: "0",
-      ASMR_SMART: "0",
-      ASMR_PREFIX_FILE_ID: "false",
-    });
+    const manifest = await buildManifest(
+      {
+        ASMR_CACHE_TTL_SECONDS: "0",
+        ASMR_SMART: "0",
+        ASMR_PREFIX_FILE_ID: "false",
+      },
+      undefined,
+      { trackId: "RJ01489611" },
+    );
 
     assert.equal(manifest.dirs.has("/01_本編"), true);
     assert.equal(manifest.dirs.has("/02_高画質イラスト"), true);
@@ -175,10 +178,13 @@ await test("smart manifest defaults to mp3 folders and keeps the whole matching 
   };
 
   try {
-    const manifest = await buildManifest({
-      ASMR_TRACK_ID: "01489611",
-      ASMR_CACHE_TTL_SECONDS: "0",
-    });
+    const manifest = await buildManifest(
+      {
+        ASMR_CACHE_TTL_SECONDS: "0",
+      },
+      undefined,
+      { trackId: "01489611" },
+    );
 
     assert.equal(manifest.dirs.has("/mp3"), false);
     assert.equal(manifest.dirs.has("/Booklet"), true);
@@ -205,10 +211,10 @@ await test("smart manifest supports ext and prefixId params", async () => {
   try {
     const wavManifest = await buildManifest(
       {
-        ASMR_TRACK_ID: "RJ01489611",
         ASMR_CACHE_TTL_SECONDS: "0",
       },
       new URLSearchParams("ext=wav&prefixId=0"),
+      { trackId: "RJ01489611" },
     );
 
     assert.equal(wavManifest.dirs.has("/mp3"), false);
@@ -217,10 +223,10 @@ await test("smart manifest supports ext and prefixId params", async () => {
 
     const fullManifest = await buildManifest(
       {
-        ASMR_TRACK_ID: "RJ01489611",
         ASMR_CACHE_TTL_SECONDS: "0",
       },
       new URLSearchParams("smart=0&prefixId=0"),
+      { trackId: "RJ01489611" },
     );
 
     assert.equal(fullManifest.dirs.has("/Artwork"), true);
@@ -242,10 +248,10 @@ await test("smart manifest falls back to the original root when ext does not mat
   try {
     const manifest = await buildManifest(
       {
-        ASMR_TRACK_ID: "RJ01489611",
         ASMR_CACHE_TTL_SECONDS: "0",
       },
       new URLSearchParams("ext=flac&prefixId=0"),
+      { trackId: "RJ01489611" },
     );
 
     assert.equal(manifest.dirs.has("/mp3"), true);
@@ -578,6 +584,7 @@ await test("rejects guest Basic Auth for recommended works", async () => {
       }),
       {
         ASMR_AUTH_KV: new MemoryKv(),
+        DAV_GUEST_USER: "guest",
       },
     );
 
@@ -612,6 +619,7 @@ await test("allows guest Basic Auth to browse public track APIs without logging 
       {
         ASMR_AUTH_KV: kv,
         ASMR_CACHE_TTL_SECONDS: "0",
+        DAV_GUEST_USER: "guest",
       },
     );
     const xml = await response.text();
@@ -659,8 +667,8 @@ await test("gets an asmr token from Basic Auth credentials and stores it in KV",
       },
     );
 
-    assert.equal(authorizedEnv.ASMR_AUTHORIZATION, "Bearer fresh-token");
-    assert.equal(authorizedEnv.ASMR_RECOMMENDER_UUID, recommenderUuid);
+    assert.equal(authorizedEnv.asmrAuth.authorization, "Bearer fresh-token");
+    assert.equal(authorizedEnv.asmrAuth.recommenderUuid, recommenderUuid);
     assert.equal(loginCalls, 1);
     assert.equal(kv.puts.length, 1);
     assert.equal(JSON.parse(kv.puts[0].value).token, "fresh-token");
@@ -688,7 +696,7 @@ await test("does not log into asmr with guest credentials", async () => {
       },
     );
 
-    assert.equal(authorizedEnv.ASMR_AUTHORIZATION, undefined);
+    assert.equal(authorizedEnv.asmrAuth, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -726,7 +734,6 @@ await test("validates a cached asmr token before reusing it for authenticated re
   try {
     const envWithKv = {
       ASMR_AUTH_KV: kv,
-      ASMR_AUTH_VALIDATE_TTL_SECONDS: "0",
     };
     const credentials = {
       username: "listener",
@@ -734,11 +741,18 @@ await test("validates a cached asmr token before reusing it for authenticated re
     };
 
     assert.equal(
-      (await envWithAsmrAuthorization(envWithKv, credentials)).ASMR_AUTHORIZATION,
+      (await envWithAsmrAuthorization(envWithKv, credentials)).asmrAuth.authorization,
       "Bearer cached-token",
     );
+
+    for (const [key, value] of kv.values.entries()) {
+      const record = JSON.parse(value);
+      record.checkedAt = Date.now() - 301_000;
+      kv.values.set(key, JSON.stringify(record));
+    }
+
     assert.equal(
-      (await envWithAsmrAuthorization(envWithKv, credentials)).ASMR_AUTHORIZATION,
+      (await envWithAsmrAuthorization(envWithKv, credentials)).asmrAuth.authorization,
       "Bearer cached-token",
     );
     assert.equal(loginCalls, 1);
@@ -854,13 +868,43 @@ await test("keeps recommend hidden from guest root listings", async () => {
           Depth: "1",
         },
       }),
-      {},
+      {
+        DAV_GUEST_USER: "guest",
+      },
     );
     const xml = await response.text();
 
     assert.equal(response.status, 207);
     assert.match(xml, /<D:href>\/popular\/<\/D:href>/);
     assert.equal(xml.includes("/recommend/"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("treats guest as a normal username when DAV_GUEST_USER is unset", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://dav.example/", {
+        method: "PROPFIND",
+        headers: {
+          Authorization: basicAuth("guest", "anything"),
+          Depth: "1",
+        },
+      }),
+      {},
+    );
+    const xml = await response.text();
+
+    assert.equal(response.status, 207);
+    assert.match(xml, /<D:href>\/popular\/<\/D:href>/);
+    assert.match(xml, /<D:href>\/recommend\/<\/D:href>/);
   } finally {
     globalThis.fetch = originalFetch;
   }

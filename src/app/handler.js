@@ -164,7 +164,9 @@ async function manifestForContext(context, env, credentials) {
     return await buildPopularManifest(env, context.searchParams);
   }
 
-  return await buildManifest(env, context.searchParams);
+  return await buildManifest(env, context.searchParams, {
+    trackId: context.trackId,
+  });
 }
 
 function canSeeRecommend(credentials) {

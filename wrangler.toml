@@ -5,19 +5,26 @@ compatibility_date = "2026-06-05"
 [vars]
 # Pass the work id in the URL path, for example:
 # https://your-worker.example/01489611/
-ASMR_URL_FIELD = "mediaDownloadUrl"
 ASMR_CACHE_TTL_SECONDS = "300"
 DAV_TITLE = "asmr-webdav"
 
 # Guest Basic Auth user can browse public APIs with any password.
 DAV_GUEST_USER = "guest"
-DAV_GUEST_ENABLED = "true"
 
 # Popular works are available at /popular/. Query params can override
 # page/pageSize, for example /popular/?page=2&pageSize=20.
-ASMR_POPULAR_PAGE = "1"
-ASMR_POPULAR_PAGE_SIZE = "20"
-ASMR_POPULAR_KEYWORD = " "
 
-# Cached JWT tokens are rechecked with /api/auth/me after this many seconds.
-ASMR_AUTH_VALIDATE_TTL_SECONDS = "300"
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

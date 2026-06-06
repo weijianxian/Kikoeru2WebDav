@@ -63,11 +63,10 @@ function constantTimeEqual(actual, expected) {
 }
 
 function asGuestCredentials(credentials, env) {
-  if (env.DAV_GUEST_ENABLED === "false") {
+  const guestUser = String(env.DAV_GUEST_USER || "").trim();
+  if (!guestUser) {
     return undefined;
   }
-
-  const guestUser = env.DAV_GUEST_USER || "guest";
   if (!constantTimeEqual(credentials.username, guestUser)) {
     return undefined;
   }
