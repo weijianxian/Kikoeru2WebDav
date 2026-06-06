@@ -237,7 +237,7 @@ await test("smart manifest supports ext and prefixId params", async () => {
   }
 });
 
-await test("smart manifest falls back to the original root when ext does not match", async () => {
+await test("smart manifest defaults to an empty root when ext does not match", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (url) => {
@@ -254,16 +254,15 @@ await test("smart manifest falls back to the original root when ext does not mat
       { trackId: "RJ01489611" },
     );
 
-    assert.equal(manifest.dirs.has("/mp3"), true);
-    assert.equal(manifest.dirs.has("/Artwork"), true);
-    assert.equal(manifest.dirs.has("/WavOnly"), true);
-    assert.equal(manifest.files.has("/mp3/track.mp3"), true);
+    assert.equal(manifest.dirs.has("/"), true);
+    assert.equal(manifest.dirs.size, 1);
+    assert.equal(manifest.files.size, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-await test("smart manifest can disable fallback when ext does not match", async () => {
+await test("smart manifest can enable fallback when ext does not match", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (url) => {
@@ -276,13 +275,14 @@ await test("smart manifest can disable fallback when ext does not match", async 
       {
         ASMR_CACHE_TTL_SECONDS: "0",
       },
-      new URLSearchParams("ext=flac&fallback=0&prefixId=0"),
+      new URLSearchParams("ext=flac&fallback=1&prefixId=0"),
       { trackId: "RJ01489611" },
     );
 
-    assert.equal(manifest.dirs.has("/"), true);
-    assert.equal(manifest.dirs.size, 1);
-    assert.equal(manifest.files.size, 0);
+    assert.equal(manifest.dirs.has("/mp3"), true);
+    assert.equal(manifest.dirs.has("/Artwork"), true);
+    assert.equal(manifest.dirs.has("/WavOnly"), true);
+    assert.equal(manifest.files.has("/mp3/track.mp3"), true);
   } finally {
     globalThis.fetch = originalFetch;
   }

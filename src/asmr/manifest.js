@@ -214,7 +214,7 @@ function manifestOptions(env, searchParams) {
   return {
     smart: booleanOption(searchParams, ["smart"], env, ["ASMR_SMART", "ASMR_SMART_PATH"], true),
     extensions: extensionOption(searchParams, env),
-    fallback: booleanOption(searchParams, ["fallback"], env, [], true),
+    fallback: booleanOption(searchParams, ["fallback"], env, [], false),
     prefixFileId: booleanOption(
       searchParams,
       ["prefixId", "rjPrefix", "prefix"],
